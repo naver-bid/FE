@@ -26,6 +26,9 @@ importers:
       lucide-react:
         specifier: ^1.35.0
         version: 1.35.0(react@19.2.8)
+      overlay-kit:
+        specifier: ^1.9.0
+        version: 1.9.0(react@19.2.8)
       react:
         specifier: ^19.2.6
         version: 19.2.8
@@ -1695,6 +1698,11 @@ packages:
   ora@8.2.0:
     resolution: {integrity: sha512-weP+BZ8MVNnlCm8c0Qdc1WSWq4Qn7I+9CJGm7Qali6g44e/PUzbjNqJX5NJ9ljlNMosfJvg1fKEGILklK9cwnw==}
     engines: {node: '>=18'}
+
+  overlay-kit@1.9.0:
+    resolution: {integrity: sha512-kwzAOhWEDsrmgJzQKuI0v3xCwyWTSaNe3qI0t+7OTTj05ciRpg3j+NWz8FRPVt7rHBFL/jAjKyQf4xGOHcRXfg==}
+    peerDependencies:
+      react: ^16.8 || ^17 || ^18 || ^19
 
   p-limit@2.3.0:
     resolution: {integrity: sha512-//88mFWSJx8lxCzwdAABTJL2MyWB12+eIY7MDL2SqLmAkeKU9qxRvWuSyTjm3FUmpBEMuFfckAIqEaVGUDxb6w==}
@@ -3780,6 +3788,10 @@ snapshots:
       stdin-discarder: 0.2.2
       string-width: 7.2.0
       strip-ansi: 7.2.0
+
+  overlay-kit@1.9.0(react@19.2.8):
+    dependencies:
+      react: 19.2.8
 
   p-limit@2.3.0:
     dependencies:
