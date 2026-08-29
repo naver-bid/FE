@@ -2,6 +2,7 @@ import { Gavel, LayoutList, type LucideIcon } from "lucide-react"
 
 export const routes = {
   login: "/login",
+  signup: "/signup",
   adGroups: "/ad-groups",
   bidding: "/bidding",
 } as const

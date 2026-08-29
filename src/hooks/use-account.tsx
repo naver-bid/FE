@@ -22,6 +22,8 @@ interface AccountContextValue {
   /** 세션 확인이 끝났는지 */
   ready: boolean
   login: (credentials: UserCredentials) => Promise<void>
+  /** 회원가입 후 바로 로그인 */
+  register: (credentials: UserCredentials) => Promise<void>
   logout: () => Promise<void>
   connectNaver: (credentials: AccountCredentials) => Promise<void>
   disconnectNaver: () => Promise<void>
@@ -73,6 +75,14 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [queryClient]
   )
 
+  const register = useCallback(
+    async (credentials: UserCredentials) => {
+      await api.register(credentials)
+      await login(credentials)
+    },
+    [login]
+  )
+
   const logout = useCallback(async () => {
     await api.logout()
     clearSession()
@@ -104,11 +114,12 @@ export function AccountProvider({ children }: { children: ReactNode }) {
       account: me?.naverAccount ?? null,
       ready: !isPending,
       login,
+      register,
       logout,
       connectNaver,
       disconnectNaver,
     }),
-    [me, isPending, login, logout, connectNaver, disconnectNaver]
+    [me, isPending, login, register, logout, connectNaver, disconnectNaver]
   )
   return (
     <AccountContext.Provider value={value}>{children}</AccountContext.Provider>

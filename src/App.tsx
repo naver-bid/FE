@@ -19,6 +19,7 @@ import { pages, routes } from "@/lib/pages"
 import { AdGroupsPage } from "@/pages/ad-groups-page"
 import { BiddingPage } from "@/pages/bidding-page"
 import { LoginPage } from "@/pages/login-page"
+import { SignupPage } from "@/pages/signup-page"
 
 /** 로그인 필요. 세션 확인 중에는 빈 화면, 미로그인이면 /login 으로 (원래 경로를 state 로 전달) */
 function ProtectedRoute() {
@@ -82,6 +83,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path={routes.login} element={<LoginPage />} />
+        <Route path={routes.signup} element={<SignupPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route index element={<Navigate to={routes.adGroups} replace />} />
