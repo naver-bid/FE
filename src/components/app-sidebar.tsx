@@ -1,3 +1,5 @@
+import { Link, useLocation } from "react-router"
+
 import { NavUser } from "@/components/nav-user"
 import {
   Sidebar,
@@ -8,18 +10,19 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useBiddingSets } from "@/hooks/use-bidding-sets"
 import { pages, type PageKey } from "@/lib/pages"
 
-interface AppSidebarProps {
-  page: PageKey
-  onPageChange: (page: PageKey) => void
-}
+export function AppSidebar() {
+  const { pathname } = useLocation()
+  const { sets } = useBiddingSets()
+  const badges: Partial<Record<PageKey, number>> = { bidding: sets.length }
 
-export function AppSidebar({ page, onPageChange }: AppSidebarProps) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -36,12 +39,13 @@ export function AppSidebar({ page, onPageChange }: AppSidebarProps) {
                 <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
                     tooltip={item.title}
-                    isActive={page === item.key}
-                    onClick={() => onPageChange(item.key)}
+                    isActive={pathname.startsWith(item.path)}
+                    render={<Link to={item.path} />}
                   >
                     <item.icon />
                     <span>{item.title}</span>
                   </SidebarMenuButton>
+                  {badges[item.key] ? <SidebarMenuBadge>{badges[item.key]}</SidebarMenuBadge> : null}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

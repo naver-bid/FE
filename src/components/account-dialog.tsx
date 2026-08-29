@@ -29,7 +29,7 @@ interface AccountDialogProps {
 
 /** overlay-kit으로 연다: `openAccountDialog()` (src/lib/overlays.tsx) */
 export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
-  const { login } = useAccount()
+  const { connectNaver } = useAccount()
   const [apiKey, setApiKey] = useState("")
   const [secretKey, setSecretKey] = useState("")
   const [customerId, setCustomerId] = useState("")
@@ -41,14 +41,14 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
     setError(null)
     setPending(true)
     try {
-      await login({
+      await connectNaver({
         apiKey: apiKey.trim(),
         secretKey: secretKey.trim(),
         customerId: customerId.trim(),
       })
       close(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "로그인에 실패했습니다.")
+      setError(err instanceof Error ? err.message : "계정 연결에 실패했습니다.")
     } finally {
       setPending(false)
     }
@@ -69,7 +69,8 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
           <DialogHeader>
             <DialogTitle>네이버 광고 계정 연결</DialogTitle>
             <DialogDescription>
-              네이버 검색광고 → 도구 → API 사용 관리에서 발급한 정보를 입력하세요.
+              네이버 검색광고 → 도구 → API 사용 관리에서 발급한 정보를
+              입력하세요.
             </DialogDescription>
           </DialogHeader>
 
@@ -84,7 +85,9 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
               />
-              <FieldDescription>광고 관리 시스템 우측 상단 계정명 옆 숫자</FieldDescription>
+              <FieldDescription>
+                광고 관리 시스템 우측 상단 계정명 옆 숫자
+              </FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="apiKey">API Key (Access License)</FieldLabel>
