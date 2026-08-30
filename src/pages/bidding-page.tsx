@@ -17,7 +17,6 @@ import { useAccount } from "@/hooks/use-account"
 import { useAdGroups } from "@/hooks/use-ad-groups"
 import { useBiddingSets } from "@/hooks/use-bidding-sets"
 import { routes } from "@/lib/pages"
-import { cn } from "@/lib/utils"
 
 /** 자동 입찰 — 세트를 골라 입찰 전략을 설정하고 실행 상태를 본다. 세트 구성은 광고 그룹 페이지에서. */
 export function BiddingPage() {
@@ -78,7 +77,6 @@ export function BiddingPage() {
         <TabsList>
           {sets.map((set) => (
             <TabsTrigger key={set.id} value={set.id}>
-              <span className={cn("size-2 shrink-0 rounded-full", set.color)} />
               {set.name}
               <span className="text-xs tabular-nums text-muted-foreground">
                 {groupsBySet(set.id).length}

@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/table"
 import { useAdGroupKeywords } from "@/hooks/use-ad-groups"
 import { formatNumber } from "@/lib/format"
-import { cn } from "@/lib/utils"
 import type { AdGroup } from "@/types/ads"
 import type { BiddingSet } from "@/types/bidding"
 
@@ -84,10 +83,7 @@ function DetailBody({
         <dt className="text-muted-foreground">세트</dt>
         <dd>
           {set ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className={cn("size-2 rounded-full", set.color)} />
-              {set.name}
-            </span>
+            <span>{set.name}</span>
           ) : (
             <span className="text-muted-foreground">미배정</span>
           )}

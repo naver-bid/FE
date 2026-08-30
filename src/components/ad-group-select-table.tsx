@@ -36,7 +36,6 @@ import { useAccount } from "@/hooks/use-account"
 import { useAdGroups } from "@/hooks/use-ad-groups"
 import { useBiddingSets } from "@/hooks/use-bidding-sets"
 import { errorMessage, goToBiddingAction } from "@/lib/toast"
-import { cn } from "@/lib/utils"
 import type { AdGroup } from "@/types/ads"
 import type { BiddingSet } from "@/types/bidding"
 
@@ -249,9 +248,6 @@ export function AdGroupSelectTable({
                           key={set.id}
                           onClick={() => handleAssign(set.id)}
                         >
-                          <span
-                            className={cn("size-2 rounded-full", set.color)}
-                          />
                           <span className="truncate">{set.name}</span>
                           {moving > 0 && (
                             <span className="ml-auto text-xs text-muted-foreground">
@@ -354,15 +350,7 @@ export function AdGroupSelectTable({
                     </TableCell>
                     <TableCell>
                       {set ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span
-                            className={cn(
-                              "size-2 shrink-0 rounded-full",
-                              set.color
-                            )}
-                          />
-                          <span className="truncate">{set.name}</span>
-                        </span>
+                        <span className="truncate">{set.name}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
                           미배정

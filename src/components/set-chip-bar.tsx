@@ -172,7 +172,6 @@ export function SetChipBar({ value, onChange }: SetChipBarProps) {
               onClick={() => onChange(set.id)}
               className="rounded-r-none pr-2"
             >
-              <span className={cn("size-2 rounded-full", set.color)} />
               {set.name}
               <span className="tabular-nums opacity-70">
                 {set.adGroupIds.length}
