@@ -121,35 +121,30 @@ export function SetChipBar({ value, onChange }: SetChipBarProps) {
     ))
   }
 
-  async function handleDelete(set: BiddingSet) {
-    const ok = await overlay.openAsync<boolean>(
-      ({ isOpen, close, unmount }) => (
-        <ConfirmDialog
-          isOpen={isOpen}
-          close={close}
-          unmount={unmount}
-          title="세트를 삭제할까요?"
-          description={
-            <>
-              <b>{set.name}</b> 세트가 삭제되고, 속해 있던 그룹{" "}
-              {set.adGroupIds.length}개는 미배정 상태가 됩니다. 광고 그룹 자체는
-              삭제되지 않습니다.
-            </>
-          }
-          confirmLabel="삭제"
-          destructive
-        />
-      )
-    )
-    if (!ok) return
-    deleteSet.mutate(set.id, {
-      onSuccess: () => {
-        if (value === set.id) onChange("all")
-        toast.success(`${set.name} 세트를 삭제했습니다.`)
-      },
-      onError: (err) =>
-        toast.error(errorMessage(err, "세트를 삭제하지 못했습니다.")),
-    })
+  function handleDelete(set: BiddingSet) {
+    overlay.open(({ isOpen, close, unmount }) => (
+      <ConfirmDialog
+        isOpen={isOpen}
+        close={close}
+        unmount={unmount}
+        title="세트를 삭제할까요?"
+        description={
+          <>
+            <b>{set.name}</b> 세트가 삭제되고, 속해 있던 그룹{" "}
+            {set.adGroupIds.length}개는 미배정 상태가 됩니다. 광고 그룹 자체는
+            삭제되지 않습니다.
+          </>
+        }
+        confirmLabel="삭제"
+        pendingLabel="삭제 중..."
+        destructive
+        onConfirm={async () => {
+          await deleteSet.mutateAsync(set.id)
+          if (value === set.id) onChange("all")
+          toast.success(`${set.name} 세트를 삭제했습니다.`)
+        }}
+      />
+    ))
   }
 
   return (
@@ -223,7 +218,7 @@ export function SetChipBar({ value, onChange }: SetChipBarProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={() => void handleDelete(set)}
+                  onClick={() => handleDelete(set)}
                 >
                   <Trash2 />
                   세트 삭제

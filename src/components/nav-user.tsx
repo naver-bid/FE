@@ -1,6 +1,8 @@
 import { ChevronsUpDown, KeyRound, Link2, LogOut, Unlink } from "lucide-react"
+import { overlay } from "overlay-kit"
+import { toast } from "sonner"
 
-import { openAccountDialog } from "@/lib/overlays"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -19,12 +21,42 @@ import {
 } from "@/components/ui/sidebar"
 import { useAccount } from "@/hooks/use-account"
 import { formatNumber } from "@/lib/format"
+import { openAccountDialog } from "@/lib/overlays"
+import { errorMessage } from "@/lib/toast"
 
 export function NavUser() {
   const { user, account, logout, disconnectNaver } = useAccount()
   const { isMobile } = useSidebar()
 
   if (!user) return null
+
+  function handleDisconnect() {
+    overlay.open(({ isOpen, close, unmount }) => (
+      <ConfirmDialog
+        isOpen={isOpen}
+        close={close}
+        unmount={unmount}
+        title="광고 계정 연결을 해제할까요?"
+        description="연결을 해제하면 광고 그룹과 자동입찰 세트를 볼 수 없습니다. 다시 연결하면 복구됩니다."
+        confirmLabel="연결 해제"
+        pendingLabel="해제 중..."
+        destructive
+        onConfirm={async () => {
+          await disconnectNaver()
+          toast.success("광고 계정 연결을 해제했습니다.")
+        }}
+      />
+    ))
+  }
+
+  function handleLogout() {
+    const id = toast.loading("로그아웃 중...")
+    logout()
+      .then(() => toast.dismiss(id))
+      .catch((err: unknown) =>
+        toast.error(errorMessage(err, "로그아웃에 실패했습니다."), { id })
+      )
+  }
 
   const initials = user.email.slice(0, 2).toUpperCase()
   const subtitle = account
@@ -104,7 +136,7 @@ export function NavUser() {
                     <KeyRound />
                     다른 광고 계정 연결
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void disconnectNaver()}>
+                  <DropdownMenuItem onClick={handleDisconnect}>
                     <Unlink />
                     연결 해제
                   </DropdownMenuItem>
@@ -119,7 +151,7 @@ export function NavUser() {
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem onClick={() => void logout()}>
+            <DropdownMenuItem onClick={handleLogout}>
               <LogOut />
               로그아웃
             </DropdownMenuItem>

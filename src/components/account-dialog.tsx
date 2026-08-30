@@ -58,7 +58,8 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
     <Dialog
       open={isOpen}
       onOpenChange={(open) => {
-        if (!open) close(false)
+        // 연결 중에는 바깥 클릭/ESC 로 닫히지 않게
+        if (!open && !pending) close(false)
       }}
       onOpenChangeComplete={(open) => {
         if (!open) unmount()
@@ -81,6 +82,7 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
                 id="customerId"
                 inputMode="numeric"
                 autoComplete="off"
+                disabled={pending}
                 value={customerId}
                 onChange={(e) => setCustomerId(e.target.value)}
               />
@@ -94,6 +96,7 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
                 id="apiKey"
                 autoComplete="off"
                 spellCheck={false}
+                disabled={pending}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
@@ -104,6 +107,7 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
                 id="secretKey"
                 autoComplete="off"
                 spellCheck={false}
+                disabled={pending}
                 aria-invalid={error ? true : undefined}
                 value={secretKey}
                 onChange={(e) => setSecretKey(e.target.value)}
