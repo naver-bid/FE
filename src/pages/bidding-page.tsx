@@ -2,7 +2,6 @@ import { useState } from "react"
 import { ArrowRight, Gavel } from "lucide-react"
 import { useNavigate } from "react-router"
 
-import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -71,11 +70,6 @@ export function BiddingPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      <PageHeader
-        title="자동 입찰"
-        description="세트별로 입찰 전략을 설정하고 실행 상태를 확인합니다."
-      />
-
       <Tabs
         value={activeSet?.id ?? ""}
         onValueChange={(value) => setSelectedSetId(String(value))}

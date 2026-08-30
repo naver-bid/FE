@@ -3,7 +3,6 @@ import { overlay } from "overlay-kit"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,11 +57,16 @@ export function NavUser() {
       )
   }
 
-  const initials = user.email.slice(0, 2).toUpperCase()
-  const subtitle = account
+  // loginId 는 조회 실패 시 customerId 로 대체되어 내려온다. 그 경우 숫자 ID 는 노출하지 않는다
+  const loginId =
+    account && account.loginId !== account.customerId ? account.loginId : null
+  const balanceText = account
     ? account.balance === null
-      ? `${account.loginId} · 잔액 조회 불가`
-      : `${account.loginId} · 잔액 ${formatNumber(account.balance)}원`
+      ? "잔액 조회 불가"
+      : `잔액 ${formatNumber(account.balance)}원`
+    : null
+  const subtitle = account
+    ? [loginId, balanceText].filter(Boolean).join(" · ")
     : "네이버 광고 계정 미연결"
 
   return (
@@ -78,11 +82,6 @@ export function NavUser() {
               />
             }
           >
-            <Avatar className="size-8 rounded-lg">
-              <AvatarFallback className="rounded-lg text-xs">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">{user.email}</span>
               <span className="truncate text-xs text-muted-foreground">
@@ -113,10 +112,9 @@ export function NavUser() {
               {account ? (
                 <>
                   <div className="flex flex-col gap-1 px-2 py-1.5 text-sm">
-                    <span className="font-medium">{account.loginId}</span>
-                    <span className="text-xs text-muted-foreground">
-                      Customer ID {account.customerId}
-                    </span>
+                    {loginId && (
+                      <span className="font-medium">{loginId}</span>
+                    )}
                     <div className="mt-1 grid grid-cols-2 gap-x-2 text-xs">
                       <span className="text-muted-foreground">소진액</span>
                       <span className="text-right tabular-nums">

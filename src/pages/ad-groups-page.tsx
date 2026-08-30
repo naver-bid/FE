@@ -1,9 +1,8 @@
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { RefreshCw, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 
 import { AdGroupSelectTable } from "@/components/ad-group-select-table"
-import { PageHeader } from "@/components/page-header"
 import { SetChipBar, type SetFilter } from "@/components/set-chip-bar"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,7 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useAccount } from "@/hooks/use-account"
-import { useSyncAccount } from "@/hooks/use-ad-groups"
+import { useAdGroups, useSyncAccount } from "@/hooks/use-ad-groups"
 import { formatDateTime } from "@/lib/format"
 import { openAccountDialog } from "@/lib/overlays"
 import { errorMessage } from "@/lib/toast"
@@ -21,12 +20,15 @@ export function AdGroupsPage() {
   const { account } = useAccount()
   const [filter, setFilter] = useState<SetFilter>("all")
 
-  const syncAccount = useSyncAccount(account?.customerId)
+  const customerId = account?.customerId
+  const adGroups = useAdGroups(customerId)
+  const syncAccount = useSyncAccount(customerId)
   const syncing = syncAccount.isPending
+  const { mutate: runSync } = syncAccount
 
-  function handleSync() {
+  const handleSync = useCallback(() => {
     const id = toast.loading("계정 동기화 중...")
-    syncAccount.mutate(undefined, {
+    runSync(undefined, {
       onSuccess: (result) =>
         toast.success(
           `계정 동기화 완료 (${formatDateTime(result.syncedAt)}) — 캠페인 ${result.campaigns}개, 그룹 ${result.adGroups}개.`,
@@ -35,7 +37,16 @@ export function AdGroupsPage() {
       onError: (err) =>
         toast.error(errorMessage(err, "동기화에 실패했습니다."), { id }),
     })
-  }
+  }, [runSync])
+
+  // 연결만 하고 동기화한 적 없는 계정(그룹 0개)은 첫 진입 시 자동으로 1회 동기화
+  const autoSyncedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!customerId || autoSyncedFor.current === customerId) return
+    if (!adGroups.isSuccess || adGroups.data.length > 0) return
+    autoSyncedFor.current = customerId
+    handleSync()
+  }, [customerId, adGroups.isSuccess, adGroups.data, handleSync])
 
   if (!account) {
     return (
@@ -55,35 +66,30 @@ export function AdGroupsPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4">
-      <PageHeader
-        title="광고 그룹"
-        description="운영 중인 광고 그룹을 자동입찰 세트로 묶습니다."
-        actions={
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon-sm"
-                  variant="outline"
-                  onClick={handleSync}
-                  disabled={syncing}
-                  aria-label="계정 동기화"
-                />
-              }
-            >
-              <RefreshCw className={syncing ? "animate-spin" : undefined} />
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="font-medium">계정 동기화</p>
-              <p>캠페인과 광고 그룹을 다시 불러옵니다</p>
-            </TooltipContent>
-          </Tooltip>
-        }
-      />
-
-      <SetChipBar value={filter} onChange={setFilter} />
-      <AdGroupSelectTable filter={filter} />
+    <div className="flex flex-1 flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <SetChipBar value={filter} onChange={setFilter} />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-sm"
+                variant="outline"
+                onClick={handleSync}
+                disabled={syncing}
+                aria-label="계정 동기화"
+              />
+            }
+          >
+            <RefreshCw className={syncing ? "animate-spin" : undefined} />
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="font-medium">계정 동기화</p>
+            <p>캠페인과 광고 그룹을 다시 불러옵니다</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <AdGroupSelectTable filter={filter} syncing={syncing} />
     </div>
   )
 }

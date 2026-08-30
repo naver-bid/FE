@@ -43,19 +43,21 @@ import type { BiddingSet } from "@/types/bidding"
 interface AdGroupSelectTableProps {
   /** 세트 칩 바 필터 */
   filter: SetFilter
+  /** 계정 동기화 진행 중이면 빈 테이블에 안내 대신 로딩 문구를 보인다 */
+  syncing?: boolean
 }
 
 /** 광고 그룹을 체크해서 자동입찰 세트에 배정하는 테이블 */
-export function AdGroupSelectTable({ filter }: AdGroupSelectTableProps) {
+export function AdGroupSelectTable({
+  filter,
+  syncing = false,
+}: AdGroupSelectTableProps) {
   const navigate = useNavigate()
   const { account } = useAccount()
-  const { data: groups = [], isLoading: loading } = useAdGroups(
-    account?.customerId
-  )
+  const { data: groups = [], isLoading } = useAdGroups(account?.customerId)
+  const loading = isLoading || (syncing && groups.length === 0)
   const { sets, membership, createSet, assignGroups, unassignGroups } =
     useBiddingSets()
-  const pending =
-    createSet.isPending || assignGroups.isPending || unassignGroups.isPending
 
   const [search, setSearch] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -189,7 +191,7 @@ export function AdGroupSelectTable({ filter }: AdGroupSelectTableProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <InputGroup className="max-w-sm">
           <InputGroupAddon>
@@ -228,7 +230,7 @@ export function AdGroupSelectTable({ filter }: AdGroupSelectTableProps) {
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button size="sm" disabled={selected.length === 0 || pending} />
+                <Button size="sm" disabled={selected.length === 0} />
               }
             >
               <FolderPlus />
@@ -283,8 +285,11 @@ export function AdGroupSelectTable({ filter }: AdGroupSelectTableProps) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border">
-        <Table>
+      {/* Table 래퍼의 overflow-x-auto 가 overflow-y 도 auto 로 만들어
+          서브픽셀 높이 차이로 세로 스크롤바가 생기는 것을 막는다 */}
+      <div className="overflow-hidden rounded-md border [&_[data-slot=table-container]]:overflow-y-hidden">
+        {/* 한 화면에 최대한 많은 행이 보이도록 기본보다 촘촘하게 */}
+        <Table className="[&_th]:h-8 [&_td]:py-1">
           <TableHeader>
             <TableRow>
               <TableHead className="w-10">

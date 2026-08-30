@@ -1,4 +1,4 @@
-import { Gavel, LayoutList, type LucideIcon } from "lucide-react"
+import { FolderTree, Gavel, type LucideIcon } from "lucide-react"
 
 export const routes = {
   login: "/login",
@@ -19,8 +19,8 @@ export const pages: {
   {
     key: "adGroups",
     path: routes.adGroups,
-    title: "광고 그룹",
-    icon: LayoutList,
+    title: "캠페인/그룹",
+    icon: FolderTree,
   },
   { key: "bidding", path: routes.bidding, title: "자동 입찰", icon: Gavel },
 ]
