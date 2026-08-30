@@ -79,7 +79,6 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
               <FieldLabel htmlFor="customerId">Customer ID</FieldLabel>
               <Input
                 id="customerId"
-                placeholder="1234567"
                 inputMode="numeric"
                 autoComplete="off"
                 value={customerId}
@@ -94,6 +93,7 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
               <Input
                 id="apiKey"
                 autoComplete="off"
+                spellCheck={false}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
@@ -102,8 +102,8 @@ export function AccountDialog({ isOpen, close, unmount }: AccountDialogProps) {
               <FieldLabel htmlFor="secretKey">Secret Key</FieldLabel>
               <Input
                 id="secretKey"
-                type="password"
                 autoComplete="off"
+                spellCheck={false}
                 aria-invalid={error ? true : undefined}
                 value={secretKey}
                 onChange={(e) => setSecretKey(e.target.value)}
