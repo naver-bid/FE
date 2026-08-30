@@ -7,6 +7,8 @@ import {
   Trash2,
 } from "lucide-react"
 import { overlay } from "overlay-kit"
+import { useNavigate } from "react-router"
+import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { SetNameDialog } from "@/components/set-name-dialog"
@@ -18,6 +20,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useAccount } from "@/hooks/use-account"
+import { useAdGroups } from "@/hooks/use-ad-groups"
+import { useBiddingSets } from "@/hooks/use-bidding-sets"
+import { errorMessage, goToBiddingAction } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import type { BiddingSet } from "@/types/bidding"
 
@@ -25,16 +31,8 @@ import type { BiddingSet } from "@/types/bidding"
 export type SetFilter = "all" | "unassigned" | string
 
 interface SetChipBarProps {
-  sets: BiddingSet[]
-  totalCount: number
-  unassignedCount: number
   value: SetFilter
   onChange: (value: SetFilter) => void
-  onCreate: (name: string) => void
-  onRename: (setId: string, name: string) => void
-  onDelete: (setId: string) => void
-  /** 새 순서의 세트 ID 배열 */
-  onReorder: (ids: string[]) => void
 }
 
 function Chip({
@@ -65,55 +63,62 @@ function Chip({
   )
 }
 
-/** 세트 칩 바 — 필터 역할 + 세트 이름 변경/삭제/생성 */
-export function SetChipBar({
-  sets,
-  totalCount,
-  unassignedCount,
-  value,
-  onChange,
-  onCreate,
-  onRename,
-  onDelete,
-  onReorder,
-}: SetChipBarProps) {
+/** 세트 칩 바 — 필터 역할 + 세트 이름 변경/삭제/생성/순서 변경 */
+export function SetChipBar({ value, onChange }: SetChipBarProps) {
+  const navigate = useNavigate()
+  const { account } = useAccount()
+  const { data: groups = [] } = useAdGroups(account?.customerId)
+  const { sets, membership, createSet, updateSet, reorderSets, deleteSet } =
+    useBiddingSets()
+
+  const unassignedCount = groups.filter((g) => !membership[g.id]).length
+
   function move(index: number, delta: -1 | 1) {
     const target = index + delta
     if (target < 0 || target >= sets.length) return
     const ids = sets.map((s) => s.id)
     ;[ids[index], ids[target]] = [ids[target], ids[index]]
-    onReorder(ids)
+    reorderSets.mutate(ids, {
+      onError: (err) =>
+        toast.error(errorMessage(err, "순서를 변경하지 못했습니다.")),
+    })
   }
 
-  async function handleCreate() {
-    const name = await overlay.openAsync<string | null>(
-      ({ isOpen, close, unmount }) => (
-        <SetNameDialog
-          isOpen={isOpen}
-          close={close}
-          unmount={unmount}
-          title="새 자동입찰 세트"
-          description="같은 입찰 전략을 적용할 그룹 묶음을 만듭니다."
-          submitLabel="만들기"
-        />
-      )
-    )
-    if (name) onCreate(name)
+  function handleCreate() {
+    overlay.open(({ isOpen, close, unmount }) => (
+      <SetNameDialog
+        isOpen={isOpen}
+        close={close}
+        unmount={unmount}
+        title="새 자동입찰 세트"
+        description="같은 입찰 전략을 적용할 그룹 묶음을 만듭니다."
+        submitLabel="만들기"
+        pendingLabel="만드는 중..."
+        onSubmit={async (name) => {
+          const set = await createSet.mutateAsync({ name })
+          toast.success(`${set.name} 세트를 만들었습니다.`, {
+            action: goToBiddingAction(navigate),
+          })
+        }}
+      />
+    ))
   }
 
-  async function handleRename(set: BiddingSet) {
-    const name = await overlay.openAsync<string | null>(
-      ({ isOpen, close, unmount }) => (
-        <SetNameDialog
-          isOpen={isOpen}
-          close={close}
-          unmount={unmount}
-          title="세트 이름 변경"
-          initialName={set.name}
-        />
-      )
-    )
-    if (name) onRename(set.id, name)
+  function handleRename(set: BiddingSet) {
+    overlay.open(({ isOpen, close, unmount }) => (
+      <SetNameDialog
+        isOpen={isOpen}
+        close={close}
+        unmount={unmount}
+        title="세트 이름 변경"
+        initialName={set.name}
+        pendingLabel="변경 중..."
+        onSubmit={async (name) => {
+          await updateSet.mutateAsync({ id: set.id, name })
+          toast.success(`세트 이름을 "${name}"(으)로 변경했습니다.`)
+        }}
+      />
+    ))
   }
 
   async function handleDelete(set: BiddingSet) {
@@ -136,14 +141,22 @@ export function SetChipBar({
         />
       )
     )
-    if (ok) onDelete(set.id)
+    if (!ok) return
+    deleteSet.mutate(set.id, {
+      onSuccess: () => {
+        if (value === set.id) onChange("all")
+        toast.success(`${set.name} 세트를 삭제했습니다.`)
+      },
+      onError: (err) =>
+        toast.error(errorMessage(err, "세트를 삭제하지 못했습니다.")),
+    })
   }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Chip active={value === "all"} onClick={() => onChange("all")}>
         전체
-        <span className="tabular-nums opacity-70">{totalCount}</span>
+        <span className="tabular-nums opacity-70">{groups.length}</span>
       </Chip>
       <Chip
         active={value === "unassigned"}
@@ -188,7 +201,7 @@ export function SetChipBar({
                 <MoreHorizontal className="size-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-40">
-                <DropdownMenuItem onClick={() => void handleRename(set)}>
+                <DropdownMenuItem onClick={() => handleRename(set)}>
                   <Pencil />
                   이름 변경
                 </DropdownMenuItem>
@@ -225,7 +238,7 @@ export function SetChipBar({
         variant="ghost"
         size="sm"
         className="h-7 rounded-full px-2.5 text-xs"
-        onClick={() => void handleCreate()}
+        onClick={handleCreate}
       >
         <Plus />새 세트
       </Button>

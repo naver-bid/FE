@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { ChevronDown, FolderPlus, Plus, Search, X } from "lucide-react"
-
 import { overlay } from "overlay-kit"
+import { useNavigate } from "react-router"
+import { toast } from "sonner"
 
 import { AdGroupDetailSheet } from "@/components/ad-group-detail-sheet"
 import type { SetFilter } from "@/components/set-chip-bar"
@@ -31,37 +32,31 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { useAccount } from "@/hooks/use-account"
+import { useAdGroups } from "@/hooks/use-ad-groups"
+import { useBiddingSets } from "@/hooks/use-bidding-sets"
+import { errorMessage, goToBiddingAction } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import type { AdGroup } from "@/types/ads"
-import type { BiddingMembership, BiddingSet } from "@/types/bidding"
+import type { BiddingSet } from "@/types/bidding"
 
 interface AdGroupSelectTableProps {
-  groups: AdGroup[]
-  loading: boolean
-  sets: BiddingSet[]
-  membership: BiddingMembership
   /** 세트 칩 바 필터 */
   filter: SetFilter
-  onAssign: (adGroupIds: string[], setId: string) => void
-  onUnassign: (adGroupIds: string[]) => void
-  /** 세트를 만들면서 선택한 그룹을 함께 배정 */
-  onCreateSet: (name: string, adGroupIds: string[]) => void
-  /** 서버 요청 진행 중 (버튼 비활성화용) */
-  pending?: boolean
 }
 
 /** 광고 그룹을 체크해서 자동입찰 세트에 배정하는 테이블 */
-export function AdGroupSelectTable({
-  groups,
-  loading,
-  sets,
-  membership,
-  filter,
-  onAssign,
-  onUnassign,
-  onCreateSet,
-  pending = false,
-}: AdGroupSelectTableProps) {
+export function AdGroupSelectTable({ filter }: AdGroupSelectTableProps) {
+  const navigate = useNavigate()
+  const { account } = useAccount()
+  const { data: groups = [], isLoading: loading } = useAdGroups(
+    account?.customerId
+  )
+  const { sets, membership, createSet, assignGroups, unassignGroups } =
+    useBiddingSets()
+  const pending =
+    createSet.isPending || assignGroups.isPending || unassignGroups.isPending
+
   const [search, setSearch] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
@@ -119,31 +114,60 @@ export function AdGroupSelectTable({
   }
 
   function handleAssign(setId: string) {
-    onAssign(selected, setId)
+    const adGroupIds = selected
+    assignGroups.mutate(
+      { setId, adGroupIds },
+      {
+        onSuccess: (result) =>
+          toast.success(
+            `${result.name}에 그룹 ${adGroupIds.length}개를 추가했습니다.` +
+              (result.moved > 0
+                ? ` (${result.moved}개는 다른 세트에서 이동)`
+                : ""),
+            { action: goToBiddingAction(navigate) }
+          ),
+        onError: (err) =>
+          toast.error(errorMessage(err, "세트에 추가하지 못했습니다.")),
+      }
+    )
     clearSelection()
   }
 
   function handleUnassign() {
-    onUnassign(selected)
+    const adGroupIds = selected
+    unassignGroups.mutate(adGroupIds, {
+      onSuccess: () =>
+        toast.success(`그룹 ${adGroupIds.length}개를 세트에서 제거했습니다.`),
+      onError: (err) =>
+        toast.error(errorMessage(err, "세트에서 제거하지 못했습니다.")),
+    })
     clearSelection()
   }
 
+  /** 세트를 만들면서 선택한 그룹을 함께 배정. 요청이 끝날 때까지 다이얼로그가 열려 있다 */
   async function handleCreate() {
-    const name = await overlay.openAsync<string | null>(
+    const adGroupIds = selected
+    const created = await overlay.openAsync<boolean>(
       ({ isOpen, close, unmount }) => (
         <SetNameDialog
           isOpen={isOpen}
           close={close}
           unmount={unmount}
           title="새 자동입찰 세트"
-          description={`선택한 그룹 ${selected.length}개가 이 세트에 추가됩니다.`}
+          description={`선택한 그룹 ${adGroupIds.length}개가 이 세트에 추가됩니다.`}
           submitLabel="만들기"
+          pendingLabel="만드는 중..."
+          onSubmit={async (name) => {
+            const set = await createSet.mutateAsync({ name, adGroupIds })
+            toast.success(
+              `${set.name} 세트를 만들고 그룹 ${adGroupIds.length}개를 추가했습니다.`,
+              { action: goToBiddingAction(navigate) }
+            )
+          }}
         />
       )
     )
-    if (!name) return
-    onCreateSet(name, selected)
-    clearSelection()
+    if (created) clearSelection()
   }
 
   function openDetail(group: AdGroup, set: BiddingSet | undefined) {

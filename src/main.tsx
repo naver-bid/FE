@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
+import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AccountProvider } from "@/hooks/use-account"
 import { queryClient } from "@/lib/query-client"
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
           <AccountProvider>
             <OverlayProvider>
               <App />
+              <Toaster />
             </OverlayProvider>
           </AccountProvider>
         </TooltipProvider>
