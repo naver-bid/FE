@@ -7,7 +7,6 @@ import {
   Trash2,
 } from "lucide-react"
 import { overlay } from "overlay-kit"
-import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -23,7 +22,7 @@ import {
 import { useAccount } from "@/hooks/use-account"
 import { useAdGroups } from "@/hooks/use-ad-groups"
 import { useBiddingSets } from "@/hooks/use-bidding-sets"
-import { errorMessage, goToBiddingAction } from "@/lib/toast"
+import { errorMessage } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 import type { BiddingSet } from "@/types/bidding"
 
@@ -35,7 +34,7 @@ interface SetChipBarProps {
   onChange: (value: SetFilter) => void
 }
 
-function Chip({
+export function Chip({
   active,
   onClick,
   children,
@@ -65,7 +64,6 @@ function Chip({
 
 /** 세트 칩 바 — 필터 역할 + 세트 이름 변경/삭제/생성/순서 변경 */
 export function SetChipBar({ value, onChange }: SetChipBarProps) {
-  const navigate = useNavigate()
   const { account } = useAccount()
   const { data: groups = [] } = useAdGroups(account?.customerId)
   const { sets, membership, createSet, updateSet, reorderSets, deleteSet } =
@@ -95,10 +93,7 @@ export function SetChipBar({ value, onChange }: SetChipBarProps) {
         submitLabel="만들기"
         pendingLabel="만드는 중..."
         onSubmit={async (name) => {
-          const set = await createSet.mutateAsync({ name })
-          toast.success(`${set.name} 세트를 만들었습니다.`, {
-            action: goToBiddingAction(navigate),
-          })
+          await createSet.mutateAsync({ name })
         }}
       />
     ))

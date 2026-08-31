@@ -1,5 +1,5 @@
 /**
- * 백엔드(/api/*) 클라이언트. dev 에서는 vite.config.ts 의 proxy 가 FastAPI(:8000)로 넘긴다.
+ * 백엔드(/api/*) 클라이언트. dev 에서는 vite.config.ts 의 proxy 가 배포된 FastAPI(fly.dev)로 넘긴다.
  *
  * 인증: access 토큰을 Authorization: Bearer 로 보낸다. 401 이면 refresh(쿠키) 후 1회 재시도.
  * 여러 요청이 동시에 401 을 받아도 refresh 는 한 번만 호출된다 (in-flight Promise 공유).

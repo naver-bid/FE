@@ -1,14 +1,26 @@
-import { useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  SELECTION_COLUMN_ID,
+  type CellClickedEvent,
+  type ColDef,
+  type DoesExternalFilterPass,
+  type GetRowIdFunc,
+  type RowSelectionOptions,
+  type SelectionChangedEvent,
+} from "ag-grid-community"
+import {
+  AgGridReact,
+  type CustomCellRendererProps,
+  type CustomOverlayProps,
+} from "ag-grid-react"
 import { ChevronDown, FolderPlus, Plus, Search, X } from "lucide-react"
 import { overlay } from "overlay-kit"
-import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { AdGroupDetailSheet } from "@/components/ad-group-detail-sheet"
 import type { SetFilter } from "@/components/set-chip-bar"
 import { SetNameDialog } from "@/components/set-name-dialog"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,18 +36,11 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { useAccount } from "@/hooks/use-account"
 import { useAdGroups } from "@/hooks/use-ad-groups"
 import { useBiddingSets } from "@/hooks/use-bidding-sets"
-import { errorMessage, goToBiddingAction } from "@/lib/toast"
+import { gridTheme } from "@/lib/ag-grid"
+import { errorMessage } from "@/lib/toast"
 import type { AdGroup } from "@/types/ads"
 import type { BiddingSet } from "@/types/bidding"
 
@@ -46,72 +51,151 @@ interface AdGroupSelectTableProps {
   syncing?: boolean
 }
 
+/** 그리드 행: 광고 그룹 + 세트 목록에서 유도한 소속 정보 */
+interface AdGroupRow extends AdGroup {
+  /** 세트 목록(membership) 기준 소속. 미배정이면 null */
+  setId: string | null
+  /** 소속 세트 이름. 미배정이면 빈 문자열 (검색 대상에서 제외) */
+  setName: string
+}
+
+/** 오버레이에 넘기는 추가 파라미터 — 행이 0개인 이유에 따라 문구를 바꾼다 */
+interface OverlayParams {
+  query: string
+  filter: SetFilter
+}
+
+const rowSelection: RowSelectionOptions<AdGroupRow> = {
+  mode: "multiRow",
+  checkboxes: true,
+  headerCheckbox: true,
+  // 전체 선택은 현재 보이는(검색·필터된) 행 기준
+  selectAll: "filtered",
+  // 행 클릭은 상세 시트 열기에 쓰므로 체크박스로만 선택한다
+  enableClickSelection: false,
+}
+
+const defaultColDef: ColDef<AdGroupRow> = {
+  resizable: true,
+  sortable: true,
+  suppressHeaderMenuButton: true,
+}
+
+const columnDefs: ColDef<AdGroupRow>[] = [
+  { field: "campaignName", headerName: "캠페인명", flex: 1, minWidth: 160 },
+  { field: "name", headerName: "그룹명", flex: 1, minWidth: 160 },
+  {
+    field: "siteUrl",
+    headerName: "사이트주소",
+    flex: 1,
+    minWidth: 200,
+    cellStyle: { color: "var(--muted-foreground)" },
+  },
+  {
+    field: "setName",
+    headerName: "세트",
+    width: 160,
+    cellRenderer: SetCell,
+  },
+]
+
+const getRowId: GetRowIdFunc<AdGroupRow> = ({ data }) => data.id
+
+function SetCell({ value }: CustomCellRendererProps<AdGroupRow, string>) {
+  return value ? (
+    <span className="truncate">{value}</span>
+  ) : (
+    <span className="text-xs text-muted-foreground">미배정</span>
+  )
+}
+
+function GridOverlay({
+  overlayType,
+  query,
+  filter,
+}: CustomOverlayProps<AdGroupRow> & OverlayParams) {
+  let message: string
+  switch (overlayType) {
+    case "loading":
+      message = "불러오는 중..."
+      break
+    case "noRows":
+      message = "[계정 동기화] 버튼을 눌러 캠페인과 광고 그룹을 불러오세요."
+      break
+    case "noMatchingRows":
+      message = query
+        ? "검색 결과가 없습니다."
+        : filter === "unassigned"
+          ? "미배정 그룹이 없습니다."
+          : "이 세트에 속한 그룹이 없습니다."
+      break
+    default:
+      return null
+  }
+  return <p className="text-sm text-muted-foreground">{message}</p>
+}
+
 /** 광고 그룹을 체크해서 자동입찰 세트에 배정하는 테이블 */
 export function AdGroupSelectTable({
   filter,
   syncing = false,
 }: AdGroupSelectTableProps) {
-  const navigate = useNavigate()
   const { account } = useAccount()
   const { data: groups = [], isLoading } = useAdGroups(account?.customerId)
   const loading = isLoading || (syncing && groups.length === 0)
   const { sets, membership, createSet, assignGroups, unassignGroups } =
     useBiddingSets()
 
+  const gridRef = useRef<AgGridReact<AdGroupRow>>(null)
   const [search, setSearch] = useState("")
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // 선택 상태의 원본은 그리드가 갖고, 여기서는 표시/액션용으로 복사본을 유지한다
+  const [selected, setSelected] = useState<string[]>([])
 
-  const setById = new Map(sets.map((s) => [s.id, s]))
+  const setById = useMemo(() => new Map(sets.map((s) => [s.id, s])), [sets])
 
-  const query = search.trim().toLowerCase()
-  const filteredGroups = groups.filter((g) => {
-    if (filter === "unassigned" && membership[g.id]) return false
-    if (
-      filter !== "all" &&
-      filter !== "unassigned" &&
-      membership[g.id] !== filter
-    )
-      return false
-    if (!query) return true
-    return [g.campaignName, g.name, g.siteUrl].some((v) =>
-      v.toLowerCase().includes(query)
-    )
-  })
+  // getRowId 로 행을 식별하므로 rows 가 바뀌어도 그리드는 변경분만 갱신하고 선택은 유지된다
+  const rows = useMemo<AdGroupRow[]>(
+    () =>
+      groups.map((g) => {
+        const setId = membership[g.id] ?? null
+        return {
+          ...g,
+          setId,
+          setName: setId ? (setById.get(setId)?.name ?? "") : "",
+        }
+      }),
+    [groups, membership, setById]
+  )
 
-  // 전체 선택은 현재 보이는(검색된) 행 기준
-  const visibleIds = filteredGroups.map((g) => g.id)
-  const visibleSelectedCount = visibleIds.filter((id) =>
-    selectedIds.has(id)
-  ).length
-  const allVisibleSelected =
-    visibleIds.length > 0 && visibleSelectedCount === visibleIds.length
-  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected
+  const query = search.trim()
+  const overlayParams = useMemo<OverlayParams>(
+    () => ({ query, filter }),
+    [query, filter]
+  )
 
-  const selected = [...selectedIds]
+  // 세트 칩 바 필터는 그리드 외부 필터로 적용한다. 필터를 바꿔도 선택은 유지된다.
+  const isExternalFilterPresent = useCallback(() => filter !== "all", [filter])
+  const doesExternalFilterPass = useCallback<
+    DoesExternalFilterPass<AdGroupRow>
+  >(
+    (node) => {
+      const setId = node.data?.setId ?? null
+      return filter === "unassigned" ? setId === null : setId === filter
+    },
+    [filter]
+  )
+  useEffect(() => {
+    gridRef.current?.api?.onFilterChanged()
+  }, [filter, rows])
+
   const selectedAssignedCount = selected.filter((id) => membership[id]).length
 
-  function toggleRow(id: string, checked: boolean) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (checked) next.add(id)
-      else next.delete(id)
-      return next
-    })
-  }
-
-  function toggleVisible(checked: boolean) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      for (const id of visibleIds) {
-        if (checked) next.add(id)
-        else next.delete(id)
-      }
-      return next
-    })
+  function handleSelectionChanged(e: SelectionChangedEvent<AdGroupRow>) {
+    setSelected(e.api.getSelectedNodes().flatMap((n) => n.data?.id ?? []))
   }
 
   function clearSelection() {
-    setSelectedIds(new Set())
+    gridRef.current?.api?.deselectAll()
   }
 
   function handleAssign(setId: string) {
@@ -119,14 +203,7 @@ export function AdGroupSelectTable({
     assignGroups.mutate(
       { setId, adGroupIds },
       {
-        onSuccess: (result) =>
-          toast.success(
-            `${result.name}에 그룹 ${adGroupIds.length}개를 추가했습니다.` +
-              (result.moved > 0
-                ? ` (${result.moved}개는 다른 세트에서 이동)`
-                : ""),
-            { action: goToBiddingAction(navigate) }
-          ),
+        // 성공 시에는 토스트 없이 세트 칩/세트 컬럼 변화로만 알린다
         onError: (err) =>
           toast.error(errorMessage(err, "세트에 추가하지 못했습니다.")),
       }
@@ -159,11 +236,7 @@ export function AdGroupSelectTable({
           submitLabel="만들기"
           pendingLabel="만드는 중..."
           onSubmit={async (name) => {
-            const set = await createSet.mutateAsync({ name, adGroupIds })
-            toast.success(
-              `${set.name} 세트를 만들고 그룹 ${adGroupIds.length}개를 추가했습니다.`,
-              { action: goToBiddingAction(navigate) }
-            )
+            await createSet.mutateAsync({ name, adGroupIds })
           }}
         />
       )
@@ -183,6 +256,12 @@ export function AdGroupSelectTable({
     ))
   }
 
+  /** 체크박스 칸을 제외한 행 클릭은 상세 시트를 연다 */
+  function handleCellClicked(e: CellClickedEvent<AdGroupRow>) {
+    if (!e.data || e.column.getColId() === SELECTION_COLUMN_ID) return
+    openDetail(e.data, e.data.setId ? setById.get(e.data.setId) : undefined)
+  }
+
   /** 선택된 그룹 중 해당 세트가 아닌 다른 세트에서 이동하게 되는 개수 */
   function movingCount(setId: string) {
     return selected.filter((id) => membership[id] && membership[id] !== setId)
@@ -190,7 +269,7 @@ export function AdGroupSelectTable({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <InputGroup className="max-w-sm">
           <InputGroupAddon>
@@ -228,9 +307,7 @@ export function AdGroupSelectTable({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger
-              render={
-                <Button size="sm" disabled={selected.length === 0} />
-              }
+              render={<Button size="sm" disabled={selected.length === 0} />}
             >
               <FolderPlus />
               세트에 추가
@@ -281,88 +358,27 @@ export function AdGroupSelectTable({
         </div>
       </div>
 
-      {/* Table 래퍼의 overflow-x-auto 가 overflow-y 도 auto 로 만들어
-          서브픽셀 높이 차이로 세로 스크롤바가 생기는 것을 막는다 */}
-      <div className="overflow-hidden rounded-md border [&_[data-slot=table-container]]:overflow-y-hidden">
-        {/* 한 화면에 최대한 많은 행이 보이도록 기본보다 촘촘하게 */}
-        <Table className="[&_th]:h-8 [&_td]:py-1">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">
-                <Checkbox
-                  checked={allVisibleSelected}
-                  indeterminate={someVisibleSelected}
-                  disabled={visibleIds.length === 0}
-                  onCheckedChange={(checked) => toggleVisible(checked === true)}
-                  aria-label="전체 선택"
-                />
-              </TableHead>
-              <TableHead>캠페인명</TableHead>
-              <TableHead>그룹명</TableHead>
-              <TableHead>사이트주소</TableHead>
-              <TableHead className="w-40">세트</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredGroups.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={5}
-                  className="h-32 text-center text-muted-foreground"
-                >
-                  {loading
-                    ? "불러오는 중..."
-                    : groups.length === 0
-                      ? "[계정 동기화] 버튼을 눌러 캠페인과 광고 그룹을 불러오세요."
-                      : query
-                        ? "검색 결과가 없습니다."
-                        : filter === "unassigned"
-                          ? "미배정 그룹이 없습니다."
-                          : "이 세트에 속한 그룹이 없습니다."}
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredGroups.map((g) => {
-                const isSelected = selectedIds.has(g.id)
-                const set = membership[g.id]
-                  ? setById.get(membership[g.id])
-                  : undefined
-                return (
-                  <TableRow
-                    key={g.id}
-                    data-state={isSelected ? "selected" : undefined}
-                    className="cursor-pointer"
-                    onClick={() => openDetail(g, set)}
-                  >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={(checked) =>
-                          toggleRow(g.id, checked === true)
-                        }
-                        aria-label={`${g.name} 선택`}
-                      />
-                    </TableCell>
-                    <TableCell>{g.campaignName}</TableCell>
-                    <TableCell>{g.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {g.siteUrl}
-                    </TableCell>
-                    <TableCell>
-                      {set ? (
-                        <span className="truncate">{set.name}</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          미배정
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
+      {/* 남은 높이를 모두 차지하고 그리드 안에서 세로 스크롤한다 (행 가상화) */}
+      <div className="min-h-80 flex-1">
+        <AgGridReact<AdGroupRow>
+          ref={gridRef}
+          theme={gridTheme}
+          rowData={rows}
+          getRowId={getRowId}
+          columnDefs={columnDefs}
+          defaultColDef={defaultColDef}
+          rowSelection={rowSelection}
+          onSelectionChanged={handleSelectionChanged}
+          onCellClicked={handleCellClicked}
+          quickFilterText={query}
+          isExternalFilterPresent={isExternalFilterPresent}
+          doesExternalFilterPass={doesExternalFilterPass}
+          loading={loading}
+          overlayComponent={GridOverlay}
+          overlayComponentParams={overlayParams}
+          suppressCellFocus
+          rowClass="cursor-pointer"
+        />
       </div>
     </div>
   )

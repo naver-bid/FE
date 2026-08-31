@@ -66,7 +66,7 @@ export function AdGroupsPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <SetChipBar value={filter} onChange={setFilter} />
         <Tooltip>
