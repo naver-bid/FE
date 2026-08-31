@@ -1,19 +1,43 @@
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import type {
   CellEditRequestEvent,
   ColDef,
+  ColGroupDef,
+  FilterChangedEvent,
   GetRowIdFunc,
+  IErrorValidationParams,
+  RowDataUpdatedEvent,
+  RowSelectionOptions,
+  SelectionChangedEvent,
+  SortChangedEvent,
   ValueFormatterParams,
 } from "ag-grid-community"
 import {
   AgGridReact,
   type CustomCellRendererProps,
+  type CustomHeaderGroupProps,
   type CustomOverlayProps,
 } from "ag-grid-react"
-import { Search, X } from "lucide-react"
+import {
+  ChevronDown,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "lucide-react"
+import { overlay } from "overlay-kit"
 import { toast } from "sonner"
 
+import { BulkBidSettingDialog } from "@/components/bulk-bid-setting-dialog"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   InputGroup,
   InputGroupAddon,
@@ -21,13 +45,37 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   useAdGroupKeywords,
+  useBulkUpdateKeywordSettings,
   useUpdateKeywordSetting,
 } from "@/hooks/use-ad-groups"
 import { gridTheme } from "@/lib/ag-grid"
+import {
+  BID_SETTING_RULES,
+  RANK_MAX,
+  toSettingValue,
+} from "@/lib/bid-setting-rules"
 import { formatNumber } from "@/lib/format"
+import {
+  STATS_PERIOD_OPTIONS,
+  formatStatsPeriod,
+  loadStatsPeriod,
+  saveStatsPeriod,
+  statsPeriodLabel,
+} from "@/lib/stats-period"
 import { errorMessage } from "@/lib/toast"
-import type { AdGroup, AdGroupKeyword, BidSettingValues } from "@/types/ads"
+import type {
+  AdGroup,
+  AdGroupKeyword,
+  BidSettingValues,
+  KeywordStats,
+  StatsPeriod,
+} from "@/types/ads"
 
 interface BiddingKeywordGridProps {
   /** 선택된 그룹. 없으면 안내 문구만 보인다 */
@@ -39,23 +87,81 @@ interface OverlayParams {
   errorMessage: string | null
 }
 
+// 헤더·셀 모두 가운데 정렬. cellClass 는 컬럼에서 덮어쓰면 합쳐지지 않으니 각자 text-center 를 포함한다.
 const defaultColDef: ColDef<AdGroupKeyword> = {
   resizable: true,
   sortable: true,
   suppressHeaderMenuButton: true,
+  headerClass: "ag-header-center",
+  cellClass: "text-center",
 }
 
 const numberCell: Partial<ColDef<AdGroupKeyword>> = {
-  type: "numericColumn",
-  cellClass: "tabular-nums",
+  cellClass: "tabular-nums text-center",
 }
 
-/** 사용자가 편집하는 셀. 배경을 살짝 칠해 편집 가능함을 알린다 */
-const editableCell: Partial<ColDef<AdGroupKeyword>> = {
-  type: "numericColumn",
-  cellClass: "tabular-nums bg-primary/8",
-  editable: true,
-  cellEditor: "agNumberCellEditor",
+/** 셀 정렬. 금액 열은 자릿수를 맞춰 비교하기 쉽도록 오른쪽 정렬(헤더는 그대로 가운데) */
+type CellAlign = "center" | "right"
+const ALIGN_CLASS: Record<CellAlign, string> = {
+  center: "text-center",
+  right: "text-right",
+}
+
+/**
+ * 컬럼 폭을 그리드 폭에 맞춰 자동 배분한다. width 는 비중(flex)으로 쓰고,
+ * 그 70% 아래로는 줄이지 않는다 — 그보다 좁아지면 가로 스크롤로 전환된다.
+ */
+const fit = (width: number): Partial<ColDef<AdGroupKeyword>> => ({
+  flex: width,
+  minWidth: Math.round(width * 0.7),
+})
+
+/**
+ * 일괄 설정 대상은 체크박스로 고른다. 전체 선택은 검색으로 걸러진 행 기준.
+ * 행 클릭은 셀 편집(더블클릭/Enter)과 겹치므로 체크박스로만 선택한다.
+ */
+const rowSelection: RowSelectionOptions<AdGroupKeyword> = {
+  mode: "multiRow",
+  checkboxes: true,
+  headerCheckbox: true,
+  selectAll: "filtered",
+  enableClickSelection: false,
+}
+
+const selectionColumnDef: ColDef<AdGroupKeyword> = {
+  width: 44,
+  resizable: false,
+  suppressMovable: true,
+}
+
+/**
+ * 사용자가 편집하는 셀. 배경을 살짝 칠해 편집 가능함을 알린다.
+ * 셀 편집 검증 규칙(BID_SETTING_RULES)에서 빈 값(NaN)은 "미입력으로 되돌리기"라서 허용한다.
+ * 그리드의 invalidEditValueMode="block" 과 함께 쓰면 규칙을 어긴 값은 저장되지 않고
+ * 에디터가 열린 채 오류 메시지(툴팁)가 보인다. Esc 로 취소할 수 있다.
+ * 주의: 에디터에 min/max/step 을 넘기지 않는다 — <input type=number> 가 invalid 판정하면
+ * 숫자 에디터가 값을 undefined 로 돌려줘 cellEditRequest 자체가 발행되지 않는다(조용히 무시됨).
+ * 대신 getValidationErrors 로 검증해 그리드가 커밋을 막고 오류를 보여주게 한다.
+ */
+function editableCell(
+  field: keyof BidSettingValues,
+  align: CellAlign = "center"
+): Partial<ColDef<AdGroupKeyword>> {
+  const rule = BID_SETTING_RULES[field]
+  return {
+    cellClass: `tabular-nums ${ALIGN_CLASS[align]} bg-primary/8`,
+    editable: true,
+    cellEditor: "agNumberCellEditor",
+    cellEditorParams: {
+      precision: 0,
+      getValidationErrors: ({ value }: IErrorValidationParams) => {
+        // value 는 input.valueAsNumber — 비어 있으면 NaN
+        if (typeof value !== "number" || Number.isNaN(value)) return null
+        const error = rule(value)
+        return error ? [error] : null
+      },
+    },
+  }
 }
 
 const formatWon = ({
@@ -63,80 +169,196 @@ const formatWon = ({
 }: ValueFormatterParams<AdGroupKeyword, number | null>) =>
   value == null ? "" : `${formatNumber(value)}원`
 
+// 희망순위는 "3/15" 처럼 최대 순위(RANK_MAX)를 접미사로 붙여 범위를 함께 보여준다.
+// 미입력 셀에도 "/15" 를 기본으로 보여 입력 가능한 범위를 알 수 있게 한다. (복사·내보내기용 문자열)
 const formatRank = ({
   value,
 }: ValueFormatterParams<AdGroupKeyword, number | null>) =>
-  value == null ? "" : String(value)
+  `${value ?? ""}/${RANK_MAX}`
+
+// 화면에서는 값은 가운데, "/15" 는 셀 오른쪽 끝에 고정한다.
+function RankCell({
+  value,
+}: CustomCellRendererProps<AdGroupKeyword, number | null>) {
+  return (
+    <span className="flex h-full items-center">
+      <span className="flex-1 text-center">{value ?? ""}</span>
+      <span className="text-muted-foreground">/{RANK_MAX}</span>
+    </span>
+  )
+}
+
+// ── 실적(stats) 포맷터. 통계 조회 실패(stats null)나 네이버가 값을 안 주면 "-" ──
+type StatsFormatter = (
+  p: ValueFormatterParams<AdGroupKeyword, number | null>
+) => string
+const formatCount: StatsFormatter = ({ value }) =>
+  value == null ? "-" : formatNumber(value)
+const formatStatWon: StatsFormatter = ({ value }) =>
+  value == null ? "-" : `${formatNumber(Math.round(value))}원`
+const formatPercent: StatsFormatter = ({ value }) =>
+  value == null ? "-" : `${value.toFixed(2)}%`
+// 노출이 없어 값이 없으면 0.0 으로 (소수 한 자리 고정)
+const rank1 = (v: number | null | undefined) => (v ?? 0).toFixed(1)
+
+/** PC·모바일 평균 노출 순위를 한 셀에 "1.2 / 3.4" 로. 정렬은 PC → 모바일 순 */
+type AvgRankPair = [pc: number | null, mobile: number | null]
+const avgRankCol: ColDef<AdGroupKeyword> = {
+  colId: "avgRank",
+  headerName: "평균 노출 순위 (PC / 모바일)",
+  ...fit(170),
+  cellClass: "tabular-nums text-center",
+  valueGetter: ({ data }): AvgRankPair => [
+    data?.stats?.pcAvgRank ?? null,
+    data?.stats?.mobileAvgRank ?? null,
+  ],
+  valueFormatter: ({
+    value,
+  }: ValueFormatterParams<AdGroupKeyword, AvgRankPair>) =>
+    `${rank1(value?.[0])} / ${rank1(value?.[1])}`,
+  comparator: (a: AvgRankPair, b: AvgRankPair) => {
+    // null(노출 없음)은 항상 뒤로
+    const cmp = (x: number | null, y: number | null) =>
+      x == null && y == null ? 0 : x == null ? 1 : y == null ? -1 : x - y
+    return cmp(a[0], b[0]) || cmp(a[1], b[1])
+  },
+}
+
+/** 실적 컬럼 하나. stats 의 필드를 읽고 숫자 셀로 보여준다 */
+function statCol(
+  field: keyof KeywordStats,
+  headerName: string,
+  width: number,
+  valueFormatter: StatsFormatter,
+  align: CellAlign = "center"
+): ColDef<AdGroupKeyword> {
+  return {
+    colId: field,
+    headerName,
+    ...fit(width),
+    cellClass: `tabular-nums ${ALIGN_CLASS[align]}`,
+    valueGetter: ({ data }) => data?.stats?.[field] ?? null,
+    valueFormatter,
+  }
+}
 
 // 현재 API(KeywordRead)로 받을 수 있는 필드만 컬럼으로 둔다.
-const columnDefs: ColDef<AdGroupKeyword>[] = [
+interface StatsGroupHeaderParams {
+  period: StatsPeriod
+  onPeriodChange: (period: StatsPeriod) => void
+}
+
+/**
+ * "실적" 그룹 헤더 — 라벨 오른쪽에 기간 선택 드롭다운(프리셋 이름 + 오늘 기준 날짜 구간).
+ * 헤더 안의 클릭이 컬럼 드래그·정렬로 새지 않도록 pointerdown 전파를 막는다.
+ */
+function StatsGroupHeader({
+  displayName,
+  period,
+  onPeriodChange,
+}: CustomHeaderGroupProps<AdGroupKeyword> & StatsGroupHeaderParams) {
+  return (
+    <div className="flex w-full items-center justify-center gap-2">
+      <span>{displayName}</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="xs"
+              className="font-normal text-muted-foreground"
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-label="실적 기간 선택"
+            />
+          }
+        >
+          {statsPeriodLabel(period)}
+          <span className="tabular-nums">{formatStatsPeriod(period)}</span>
+          <ChevronDown data-icon="inline-end" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="center">
+          <DropdownMenuRadioGroup
+            value={period}
+            onValueChange={(v) => onPeriodChange(v as StatsPeriod)}
+          >
+            {STATS_PERIOD_OPTIONS.map((o) => (
+              <DropdownMenuRadioItem key={o.value} value={o.value}>
+                {o.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+// 헤더는 2단: 실적 컬럼들은 "실적" 그룹 아래에 묶인다.
+// 기간 선택 상태를 헤더에 넘겨야 해서 컬럼 정의는 함수로 만든다 (컴포넌트에서 useMemo).
+const buildColumnDefs = (
+  statsHeader: StatsGroupHeaderParams
+): (ColDef<AdGroupKeyword> | ColGroupDef<AdGroupKeyword>)[] => [
+  {
+    colId: "no",
+    headerName: "No",
+    width: 60,
+    // 화면에 보이는 순서대로 1부터. 정렬·검색으로 순서가 바뀌면 다시 계산한다(refreshRowNumbers)
+    valueGetter: ({ node }) =>
+      node?.rowIndex == null ? null : node.rowIndex + 1,
+    sortable: false,
+    suppressMovable: true,
+    ...numberCell,
+    cellClass: "tabular-nums text-center text-muted-foreground",
+  },
   {
     field: "keyword",
     headerName: "키워드",
-    flex: 1,
-    minWidth: 200,
-    cellClass: "font-medium",
-  },
-  {
-    field: "status",
-    headerName: "상태",
-    width: 120,
-    cellClass: "flex items-center gap-1.5",
-    cellRenderer: StatusCell,
-  },
-  {
-    colId: "avgRank",
-    // stats.avgRank — 최근 7일 평균 노출 순위 (네이버 집계, 수 시간 지연). 실시간 순위가 아니다.
-    headerName: "평균 순위(7일)",
-    width: 115,
-    ...numberCell,
-    valueGetter: ({ data }) => data?.stats?.avgRank ?? null,
-    valueFormatter: ({
-      value,
-    }: ValueFormatterParams<AdGroupKeyword, number | null>) =>
-      value == null ? "-" : value.toFixed(1),
-  },
-  {
-    field: "bidAmt",
-    headerName: "입찰가",
-    width: 110,
-    ...numberCell,
-    cellRenderer: BidCell,
-  },
-  {
-    field: "exposable",
-    headerName: "노출 가능",
-    width: 95,
-    cellClass: "flex items-center",
-    cellRenderer: ExposableCell,
-    comparator: (a: boolean, b: boolean) => Number(b) - Number(a),
+    ...fit(200),
+    cellClass: "font-medium text-center",
   },
   {
     colId: "targetRank",
     headerName: "희망순위",
-    width: 100,
-    ...editableCell,
+    ...fit(100),
+    ...editableCell("targetRank"),
     valueGetter: ({ data }) => data?.bidSetting?.targetRank ?? null,
     valueFormatter: formatRank,
-    cellEditorParams: { min: 1, max: 15, precision: 0, step: 1 },
+    cellRenderer: RankCell,
   },
   {
     colId: "maxBid",
     headerName: "입찰가 한도",
-    width: 120,
-    ...editableCell,
+    ...fit(120),
+    ...editableCell("maxBid", "right"),
     valueGetter: ({ data }) => data?.bidSetting?.maxBid ?? null,
     valueFormatter: formatWon,
-    cellEditorParams: { min: 0, precision: 0, step: 10 },
   },
   {
     colId: "bidAdjust",
     headerName: "가감액",
-    width: 110,
-    ...editableCell,
+    ...fit(110),
+    ...editableCell("bidAdjust", "right"),
     valueGetter: ({ data }) => data?.bidSetting?.bidAdjust ?? null,
     valueFormatter: formatWon,
-    cellEditorParams: { min: 0, precision: 0, step: 10 },
+  },
+  {
+    // 네이버 집계 통계 (period 기준, 수 시간 지연). 클릭률·전환율은 네이버가 % 값으로 준다.
+    groupId: "stats",
+    headerName: "실적",
+    headerClass: "ag-header-center",
+    headerGroupComponent: StatsGroupHeader,
+    headerGroupComponentParams: statsHeader,
+    marryChildren: true,
+    children: [
+      statCol("impressions", "노출수", 90, formatCount),
+      statCol("clicks", "클릭수", 80, formatCount),
+      statCol("ctr", "클릭률", 85, formatPercent),
+      statCol("cost", "광고비", 100, formatStatWon, "right"),
+      statCol("cpc", "CPC", 90, formatStatWon, "right"),
+      statCol("conversions", "전환수", 80, formatCount),
+      statCol("conversionRate", "전환율", 85, formatPercent),
+      avgRankCol,
+    ],
   },
 ]
 
@@ -148,54 +370,6 @@ const EDITABLE_FIELDS = new Set<keyof BidSettingValues>([
 ])
 
 const getRowId: GetRowIdFunc<AdGroupKeyword> = ({ data }) => data.id
-
-const STATUS_LABEL: Record<string, string> = {
-  ELIGIBLE: "노출 가능",
-  PAUSED: "일시중지",
-  DELETED: "삭제됨",
-}
-
-/** 네이버 상태 + 사용자 OFF 여부. 사유는 title 로 */
-function StatusCell({
-  value,
-  data,
-}: CustomCellRendererProps<AdGroupKeyword, string>) {
-  const label = value ? (STATUS_LABEL[value] ?? value) : "-"
-  return (
-    <>
-      <span
-        title={data?.statusReason ?? undefined}
-        className={value === "ELIGIBLE" ? undefined : "text-muted-foreground"}
-      >
-        {label}
-      </span>
-      {data?.userLock && (
-        <Badge variant="outline" className="h-4 px-1.5">
-          OFF
-        </Badge>
-      )}
-    </>
-  )
-}
-
-function BidCell({
-  value,
-  data,
-}: CustomCellRendererProps<AdGroupKeyword, number>) {
-  if (data?.useGroupBidAmt)
-    return <span className="text-xs text-muted-foreground">그룹 입찰가</span>
-  return <>{value == null ? "-" : `${formatNumber(value)}원`}</>
-}
-
-function ExposableCell({
-  value,
-}: CustomCellRendererProps<AdGroupKeyword, boolean>) {
-  return value ? (
-    <span>가능</span>
-  ) : (
-    <span className="text-muted-foreground">불가</span>
-  )
-}
 
 function GridOverlay({
   overlayType,
@@ -227,25 +401,45 @@ function GridOverlay({
   return <p className="text-center text-sm text-muted-foreground">{message}</p>
 }
 
-/** 편집기가 돌려주는 값을 설정값으로. 빈 값은 null(미입력) */
-function toSettingValue(raw: unknown): number | null {
-  if (raw === "" || raw == null) return null
-  const n = typeof raw === "number" ? raw : Number(raw)
-  return Number.isFinite(n) ? Math.round(n) : null
+/** No 열은 rowIndex 기반이라 정렬·필터 뒤에는 강제로 다시 그려야 한다 */
+function refreshRowNumbers({
+  api,
+}: SortChangedEvent<AdGroupKeyword> | FilterChangedEvent<AdGroupKeyword>) {
+  api.refreshCells({ columns: ["no"], force: true })
 }
 
 /**
  * 자동 입찰 페이지 하단 — 선택한 그룹의 키워드 목록.
  * 희망순위·입찰가 한도·가감액은 셀을 더블클릭(또는 Enter)해 편집하면 즉시 저장된다.
+ * 여러 키워드를 체크하고 툴바의 "일괄 설정"으로 세 값을 한 번에 바꿀 수도 있다.
  */
 export function BiddingKeywordGrid({ group }: BiddingKeywordGridProps) {
   const adGroupId = group?.id ?? null
+  const gridRef = useRef<AgGridReact<AdGroupKeyword>>(null)
+  // 툴바 버튼 활성화·개수 표시용. 실제 대상 행은 클릭 시점에 그리드에서 다시 읽는다.
+  const [selectedCount, setSelectedCount] = useState(0)
+  // 마지막으로 고른 기간을 브라우저에 저장해 다음에도 같은 기간으로 연다
+  const [statsPeriod, setStatsPeriodState] =
+    useState<StatsPeriod>(loadStatsPeriod)
+  const setStatsPeriod = useCallback((period: StatsPeriod) => {
+    saveStatsPeriod(period)
+    setStatsPeriodState(period)
+  }, [])
   const {
     data: keywords = [],
     isLoading,
+    isFetching,
     error,
-  } = useAdGroupKeywords(adGroupId)
+    refetch,
+  } = useAdGroupKeywords(adGroupId, statsPeriod)
   const updateSetting = useUpdateKeywordSetting(adGroupId)
+  const bulkUpdate = useBulkUpdateKeywordSettings(adGroupId)
+
+  const columnDefs = useMemo(
+    () =>
+      buildColumnDefs({ period: statsPeriod, onPeriodChange: setStatsPeriod }),
+    [statsPeriod, setStatsPeriod]
+  )
 
   const [search, setSearch] = useState("")
   const query = search.trim()
@@ -261,6 +455,7 @@ export function BiddingKeywordGrid({ group }: BiddingKeywordGridProps) {
   function handleCellEditRequest(e: CellEditRequestEvent<AdGroupKeyword>) {
     const field = e.column.getColId() as keyof BidSettingValues
     if (!e.data || !EDITABLE_FIELDS.has(field)) return
+    // 범위·단위 검증은 에디터(getValidationErrors + invalidEditValueMode="block")가 이미 끝냈다
     const next = toSettingValue(e.newValue)
     const prev = e.data.bidSetting?.[field] ?? null
     if (next === prev) return
@@ -271,6 +466,48 @@ export function BiddingKeywordGrid({ group }: BiddingKeywordGridProps) {
           toast.error(errorMessage(err, "설정을 저장하지 못했습니다.")),
       }
     )
+  }
+
+  /** 그룹 전환·재조회로 행이 바뀌면 그리드가 선택을 정리하므로 개수를 다시 읽는다 */
+  function syncSelectedCount({
+    api,
+  }:
+    | SelectionChangedEvent<AdGroupKeyword>
+    | RowDataUpdatedEvent<AdGroupKeyword>) {
+    setSelectedCount(api.getSelectedNodes().length)
+  }
+
+  /**
+   * 체크한 키워드들에 다이얼로그에서 입력한 값만 덮어쓴다.
+   * PUT 일괄 API 는 세 값을 통째로 저장하므로, 입력하지 않은 값은 각 키워드의 기존 값을 그대로 보낸다.
+   */
+  function handleBulkEdit() {
+    const api = gridRef.current?.api
+    if (!api) return
+    const targets = api.getSelectedRows()
+    if (targets.length === 0) return
+
+    overlay.open(({ isOpen, close, unmount }) => (
+      <BulkBidSettingDialog
+        isOpen={isOpen}
+        close={close}
+        unmount={unmount}
+        count={targets.length}
+        onSubmit={async (patch) => {
+          await bulkUpdate.mutateAsync(
+            targets.map((k) => ({
+              keywordId: k.id,
+              targetRank: k.bidSetting?.targetRank ?? null,
+              maxBid: k.bidSetting?.maxBid ?? null,
+              bidAdjust: k.bidSetting?.bidAdjust ?? null,
+              ...patch,
+            }))
+          )
+          toast.success(`키워드 ${targets.length}개의 설정을 저장했습니다.`)
+          api.deselectAll()
+        }}
+      />
+    ))
   }
 
   if (!group) {
@@ -296,43 +533,94 @@ export function BiddingKeywordGrid({ group }: BiddingKeywordGridProps) {
             </Badge>
           )}
         </div>
-        <InputGroup className="w-64">
-          <InputGroupAddon>
-            <Search />
-          </InputGroupAddon>
-          <InputGroupInput
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="키워드 검색"
-            aria-label="키워드 검색"
-          />
-          {search && (
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                size="icon-xs"
-                onClick={() => setSearch("")}
-                aria-label="검색어 지우기"
-              >
-                <X />
-              </InputGroupButton>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="outline"
+                  onClick={handleBulkEdit}
+                  disabled={selectedCount === 0 || bulkUpdate.isPending}
+                />
+              }
+            >
+              <SlidersHorizontal />
+              일괄 설정
+              {selectedCount > 0 && (
+                <Badge variant="secondary" className="tabular-nums">
+                  {selectedCount}
+                </Badge>
+              )}
+            </TooltipTrigger>
+            <TooltipContent>
+              {selectedCount === 0
+                ? "왼쪽 체크박스로 키워드를 먼저 선택하세요"
+                : "선택한 키워드의 희망순위·입찰가 한도·가감액을 한 번에 바꿉니다"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => refetch()}
+                  disabled={isFetching}
+                  aria-label="키워드 새로고침"
+                />
+              }
+            >
+              <RefreshCw className={isFetching ? "animate-spin" : undefined} />
+            </TooltipTrigger>
+            <TooltipContent>키워드를 다시 불러옵니다</TooltipContent>
+          </Tooltip>
+          <InputGroup className="w-64">
+            <InputGroupAddon>
+              <Search />
             </InputGroupAddon>
-          )}
-        </InputGroup>
+            <InputGroupInput
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="키워드 검색"
+              aria-label="키워드 검색"
+            />
+            {search && (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-xs"
+                  onClick={() => setSearch("")}
+                  aria-label="검색어 지우기"
+                >
+                  <X />
+                </InputGroupButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">
         <AgGridReact<AdGroupKeyword>
+          ref={gridRef}
           theme={gridTheme}
           rowData={keywords}
           getRowId={getRowId}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
+          rowSelection={rowSelection}
+          selectionColumnDef={selectionColumnDef}
+          onSelectionChanged={syncSelectedCount}
+          onRowDataUpdated={syncSelectedCount}
           quickFilterText={query}
           loading={isLoading}
           overlayComponent={GridOverlay}
           overlayComponentParams={overlayParams}
+          onSortChanged={refreshRowNumbers}
+          onFilterChanged={refreshRowNumbers}
           readOnlyEdit
           onCellEditRequest={handleCellEditRequest}
+          // 검증에 걸린 값은 저장하지 않고 에디터를 열어 둔 채 오류를 보여준다
+          invalidEditValueMode="block"
           stopEditingWhenCellsLoseFocus
         />
       </div>

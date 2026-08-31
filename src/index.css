@@ -135,3 +135,12 @@
     @apply font-sans;
     }
 }
+/* AG Grid — headerClass 로 지정해 헤더 라벨을 가운데 정렬 (컬럼 그룹 헤더 포함) */
+.ag-header-cell.ag-header-center .ag-header-cell-label,
+.ag-header-group-cell.ag-header-center .ag-header-group-cell-label {
+  justify-content: center;
+}
+/* AG Grid — 오른쪽 정렬 셀(금액)은 편집 중인 입력창 텍스트도 오른쪽에 맞춘다 */
+.ag-cell.text-right .ag-input-field-input {
+  text-align: right;
+}

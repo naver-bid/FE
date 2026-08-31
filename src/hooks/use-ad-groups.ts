@@ -85,6 +85,30 @@ export function useUpdateKeywordSetting(adGroupId: string | null) {
   })
 }
 
+/**
+ * 여러 키워드의 입찰 설정을 한 번에 저장 (PUT upsert).
+ * 서버가 항목마다 세 값을 통째로 덮어쓰므로, 호출부는 바꾸지 않을 값도 기존 값으로 채워 보내야 한다.
+ * 성공하면 응답으로 받은 설정을 해당 그룹의 모든 기간 캐시에 반영한다.
+ */
+export function useBulkUpdateKeywordSettings(adGroupId: string | null) {
+  const queryClient = useQueryClient()
+  const key = queryKeys.adGroupKeywords(adGroupId ?? "")
+
+  return useMutation({
+    mutationFn: (items: (BidSettingValues & { keywordId: string })[]) =>
+      api.bulkUpsertKeywordSettings(adGroupId!, items),
+    onSuccess: (settings) => {
+      const byId = new Map(settings.map((s) => [s.keywordId, s]))
+      queryClient.setQueriesData<AdGroupKeyword[]>({ queryKey: key }, (prev) =>
+        prev?.map((k) => {
+          const setting = byId.get(k.id)
+          return setting ? { ...k, bidSetting: setting } : k
+        })
+      )
+    },
+  })
+}
+
 export function useSyncAccount(customerId: string | undefined) {
   const queryClient = useQueryClient()
   return useMutation({

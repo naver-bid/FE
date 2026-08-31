@@ -5,9 +5,11 @@ import {
   ModuleRegistry,
   NumberEditorModule,
   QuickFilterModule,
+  RenderApiModule,
   RowApiModule,
   RowSelectionModule,
   RowStyleModule,
+  TooltipModule,
   ValidationModule,
   themeQuartz,
   type Theme,
@@ -23,8 +25,12 @@ ModuleRegistry.registerModules([
   ExternalFilterModule,
   // 자동 입찰 그룹 그리드에서 api.forEachNode 로 선택 상태를 맞출 때 필요
   RowApiModule,
+  // 키워드 그리드 No 열을 정렬·필터 뒤 api.refreshCells 로 다시 그릴 때 필요
+  RenderApiModule,
   // 키워드 그리드의 희망순위·입찰가 한도·가감액 셀 편집
   NumberEditorModule,
+  // 셀 편집 검증 오류 메시지를 툴팁으로 보여준다 (invalidEditValueMode)
+  TooltipModule,
   RowStyleModule,
   CellStyleModule,
   ...(import.meta.env.DEV ? [ValidationModule] : []),
@@ -37,6 +43,8 @@ ModuleRegistry.registerModules([
 export const gridTheme: Theme = themeQuartz.withParams({
   // 색상
   accentColor: "var(--primary)",
+  // 셀 편집 검증 실패 시 테두리 색 (invalidEditValueMode)
+  invalidColor: "var(--destructive)",
   backgroundColor: "var(--background)",
   foregroundColor: "var(--foreground)",
   textColor: "var(--foreground)",

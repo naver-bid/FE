@@ -35,15 +35,29 @@ export type BidSettingValues = Pick<
   "targetRank" | "maxBid" | "bidAdjust"
 >
 
-/** 키워드 통계 집계 기간 — GET /api/adgroups/{id}/keywords?period= */
-export type StatsPeriod = "today" | "yesterday" | "last7days" | "last30days"
+/**
+ * 키워드 통계 집계 기간 (네이버 datePreset) — GET /api/adgroups/{id}/keywords?period=
+ * 서버는 since/until(YYYY-MM-DD, KST) 로 임의 기간도 받는다. 그 경우 period 는 무시된다.
+ */
+export type StatsPeriod =
+  | "today"
+  | "yesterday"
+  | "last7days"
+  | "last30days"
+  | "lastweek"
+  | "lastmonth"
+  | "lastquarter"
 
 /**
- * 키워드 기간 통계. 네이버 /stats 집계라 실시간이 아니고 수 시간 지연된다.
+ * 키워드 기간 통계 — 네이버 GET /stats 가 주는 키워드 통계 전부.
+ * 실시간이 아니라 네이버 집계(수 시간 지연)이며 period 기준.
+ * 카운트/금액은 실적이 없으면 0, 비율/평균(순위·CPC·전환율·ROAS 등)은 네이버가 주지 않으면 null.
  * 서버 스키마: KeywordStats
  */
 export interface KeywordStats {
-  period: StatsPeriod
+  period: string
+  /** 네이버 집계 시각 (ISO). 모르면 null */
+  updatedAt: string | null
   /** 노출수 */
   impressions: number
   /** 클릭수 */
@@ -56,6 +70,32 @@ export interface KeywordStats {
   cpc: number | null
   /** 기간 평균 노출 순위. 노출이 없으면 null */
   avgRank: number | null
+  /** 최근 평균 노출 순위 */
+  recentAvgRank: number | null
+  /** 최근 평균 CPC (원) */
+  recentAvgCpc: number | null
+  /** PC 평균 노출 순위 */
+  pcAvgRank: number | null
+  /** 모바일 평균 노출 순위 */
+  mobileAvgRank: number | null
+  /** 전환수 */
+  conversions: number
+  /** 전환율 */
+  conversionRate: number | null
+  /** 전환 매출 (원) */
+  conversionAmount: number
+  /** 광고수익률 */
+  roas: number | null
+  /** 전환당 비용 (원) */
+  costPerConversion: number | null
+  /** 구매 전환수 */
+  purchaseConversions: number
+  /** 구매 전환 매출 (원) */
+  purchaseConversionAmount: number
+  /** 구매 ROAS */
+  purchaseRoas: number | null
+  /** 동영상 조회수 */
+  videoViews: number
 }
 
 /** 광고 그룹에 등록된 키워드 (네이버 실시간 조회 + 사용자 설정·기간 통계 병합) — GET /api/adgroups/{id}/keywords */

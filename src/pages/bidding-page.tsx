@@ -6,7 +6,6 @@ import { useDefaultLayout } from "react-resizable-panels"
 import { BiddingGroupGrid } from "@/components/bidding-group-grid"
 import { BiddingKeywordGrid } from "@/components/bidding-keyword-grid"
 import { Chip } from "@/components/set-chip-bar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   ResizableHandle,
@@ -158,12 +157,8 @@ export function BiddingPage() {
           id="groups"
           defaultSize="30%"
           minSize="15%"
-          className="flex flex-col gap-2"
+          className="flex flex-col"
         >
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium">입찰 대상 그룹</h3>
-            <Badge variant="secondary">{activeGroups.length}개</Badge>
-          </div>
           <BiddingGroupGrid
             groups={activeGroups}
             selectedId={activeGroup?.id ?? null}
