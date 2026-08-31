@@ -12,7 +12,53 @@ export interface AdGroup {
   setId: string | null
 }
 
-/** 광고 그룹에 등록된 키워드 (네이버 동기화 데이터, 읽기 전용) — GET /api/adgroups/{id}/keywords */
+/**
+ * 키워드별 자동입찰 설정 (사용자 입력값). 세 값 모두 미입력이면 null.
+ * 서버 스키마: BidSettingRead
+ */
+export interface BidSetting {
+  /** nccKeywordId */
+  keywordId: string
+  /** 희망순위 */
+  targetRank: number | null
+  /** 입찰가 한도 (원) */
+  maxBid: number | null
+  /** 가감액 (원/회) */
+  bidAdjust: number | null
+  /** 마지막 저장 시각 (ISO) */
+  updatedAt: string
+}
+
+/** 사용자가 입력하는 세 값. 서버 스키마: BidSettingPatch / BidSettingItem 의 값 부분 */
+export type BidSettingValues = Pick<
+  BidSetting,
+  "targetRank" | "maxBid" | "bidAdjust"
+>
+
+/** 키워드 통계 집계 기간 — GET /api/adgroups/{id}/keywords?period= */
+export type StatsPeriod = "today" | "yesterday" | "last7days" | "last30days"
+
+/**
+ * 키워드 기간 통계. 네이버 /stats 집계라 실시간이 아니고 수 시간 지연된다.
+ * 서버 스키마: KeywordStats
+ */
+export interface KeywordStats {
+  period: StatsPeriod
+  /** 노출수 */
+  impressions: number
+  /** 클릭수 */
+  clicks: number
+  /** 비용 (원) */
+  cost: number
+  /** 클릭률. 노출이 없으면 null */
+  ctr: number | null
+  /** 클릭당 비용 (원). 클릭이 없으면 null */
+  cpc: number | null
+  /** 기간 평균 노출 순위. 노출이 없으면 null */
+  avgRank: number | null
+}
+
+/** 광고 그룹에 등록된 키워드 (네이버 실시간 조회 + 사용자 설정·기간 통계 병합) — GET /api/adgroups/{id}/keywords */
 export interface AdGroupKeyword {
   /** nccKeywordId */
   id: string
@@ -38,6 +84,12 @@ export interface AdGroupKeyword {
   regTm: string | null
   /** 수정 시각 (ISO) */
   editTm: string | null
+  /** 현재 노출 가능 여부 (네이버 기준) */
+  exposable: boolean
+  /** 사용자 자동입찰 설정. 한 번도 입력하지 않았거나 초기화했으면 null */
+  bidSetting: BidSetting | null
+  /** 기간 통계. 통계 조회가 실패하면 null (목록은 정상) */
+  stats: KeywordStats | null
 }
 
 export interface AccountCredentials {

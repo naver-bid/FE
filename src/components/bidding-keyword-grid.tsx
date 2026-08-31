@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import type {
+  CellEditRequestEvent,
   ColDef,
   GetRowIdFunc,
   ValueFormatterParams,
@@ -10,6 +11,7 @@ import {
   type CustomOverlayProps,
 } from "ag-grid-react"
 import { Search, X } from "lucide-react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -18,10 +20,14 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
-import { useAdGroupKeywords } from "@/hooks/use-ad-groups"
+import {
+  useAdGroupKeywords,
+  useUpdateKeywordSetting,
+} from "@/hooks/use-ad-groups"
 import { gridTheme } from "@/lib/ag-grid"
-import { formatDateTime, formatNumber } from "@/lib/format"
-import type { AdGroup, AdGroupKeyword } from "@/types/ads"
+import { formatNumber } from "@/lib/format"
+import { errorMessage } from "@/lib/toast"
+import type { AdGroup, AdGroupKeyword, BidSettingValues } from "@/types/ads"
 
 interface BiddingKeywordGridProps {
   /** 선택된 그룹. 없으면 안내 문구만 보인다 */
@@ -44,12 +50,25 @@ const numberCell: Partial<ColDef<AdGroupKeyword>> = {
   cellClass: "tabular-nums",
 }
 
-const formatOptionalDateTime = ({
-  value,
-}: ValueFormatterParams<AdGroupKeyword, string | null>) =>
-  value ? formatDateTime(value) : "-"
+/** 사용자가 편집하는 셀. 배경을 살짝 칠해 편집 가능함을 알린다 */
+const editableCell: Partial<ColDef<AdGroupKeyword>> = {
+  type: "numericColumn",
+  cellClass: "tabular-nums bg-primary/8",
+  editable: true,
+  cellEditor: "agNumberCellEditor",
+}
 
-// 현재 API(AdGroupKeyword)로 받을 수 있는 필드만 컬럼으로 둔다.
+const formatWon = ({
+  value,
+}: ValueFormatterParams<AdGroupKeyword, number | null>) =>
+  value == null ? "" : `${formatNumber(value)}원`
+
+const formatRank = ({
+  value,
+}: ValueFormatterParams<AdGroupKeyword, number | null>) =>
+  value == null ? "" : String(value)
+
+// 현재 API(KeywordRead)로 받을 수 있는 필드만 컬럼으로 둔다.
 const columnDefs: ColDef<AdGroupKeyword>[] = [
   {
     field: "keyword",
@@ -59,66 +78,103 @@ const columnDefs: ColDef<AdGroupKeyword>[] = [
     cellClass: "font-medium",
   },
   {
-    field: "userLock",
-    headerName: "입찰",
-    width: 80,
-    cellClass: "flex items-center",
-    cellRenderer: OnOffCell,
-    // OFF(userLock=true) 가 뒤로 가도록
-    comparator: (a: boolean, b: boolean) => Number(a) - Number(b),
+    field: "status",
+    headerName: "상태",
+    width: 120,
+    cellClass: "flex items-center gap-1.5",
+    cellRenderer: StatusCell,
+  },
+  {
+    colId: "avgRank",
+    // stats.avgRank — 최근 7일 평균 노출 순위 (네이버 집계, 수 시간 지연). 실시간 순위가 아니다.
+    headerName: "평균 순위(7일)",
+    width: 115,
+    ...numberCell,
+    valueGetter: ({ data }) => data?.stats?.avgRank ?? null,
+    valueFormatter: ({
+      value,
+    }: ValueFormatterParams<AdGroupKeyword, number | null>) =>
+      value == null ? "-" : value.toFixed(1),
   },
   {
     field: "bidAmt",
     headerName: "입찰가",
-    width: 120,
+    width: 110,
     ...numberCell,
     cellRenderer: BidCell,
   },
   {
-    field: "status",
-    headerName: "상태",
-    width: 110,
-    cellRenderer: StatusCell,
+    field: "exposable",
+    headerName: "노출 가능",
+    width: 95,
+    cellClass: "flex items-center",
+    cellRenderer: ExposableCell,
+    comparator: (a: boolean, b: boolean) => Number(b) - Number(a),
   },
   {
-    field: "inspectStatus",
-    headerName: "검수",
-    width: 130,
-    valueFormatter: ({ value }) => value ?? "-",
-    cellStyle: { color: "var(--muted-foreground)" },
-  },
-  {
-    field: "qualityIndex",
-    headerName: "품질지수",
+    colId: "targetRank",
+    headerName: "희망순위",
     width: 100,
-    ...numberCell,
-    valueFormatter: ({ value }) => (value == null ? "-" : String(value)),
+    ...editableCell,
+    valueGetter: ({ data }) => data?.bidSetting?.targetRank ?? null,
+    valueFormatter: formatRank,
+    cellEditorParams: { min: 1, max: 15, precision: 0, step: 1 },
   },
   {
-    field: "regTm",
-    headerName: "등록",
-    width: 140,
-    valueFormatter: formatOptionalDateTime,
-    cellStyle: { color: "var(--muted-foreground)" },
+    colId: "maxBid",
+    headerName: "입찰가 한도",
+    width: 120,
+    ...editableCell,
+    valueGetter: ({ data }) => data?.bidSetting?.maxBid ?? null,
+    valueFormatter: formatWon,
+    cellEditorParams: { min: 0, precision: 0, step: 10 },
   },
   {
-    field: "editTm",
-    headerName: "수정",
-    width: 140,
-    valueFormatter: formatOptionalDateTime,
-    cellStyle: { color: "var(--muted-foreground)" },
+    colId: "bidAdjust",
+    headerName: "가감액",
+    width: 110,
+    ...editableCell,
+    valueGetter: ({ data }) => data?.bidSetting?.bidAdjust ?? null,
+    valueFormatter: formatWon,
+    cellEditorParams: { min: 0, precision: 0, step: 10 },
   },
 ]
 
+/** 편집 가능한 컬럼 colId → 설정 필드. 편집 요청을 PATCH 바디로 바꿀 때 쓴다 */
+const EDITABLE_FIELDS = new Set<keyof BidSettingValues>([
+  "targetRank",
+  "maxBid",
+  "bidAdjust",
+])
+
 const getRowId: GetRowIdFunc<AdGroupKeyword> = ({ data }) => data.id
 
-function OnOffCell({
+const STATUS_LABEL: Record<string, string> = {
+  ELIGIBLE: "노출 가능",
+  PAUSED: "일시중지",
+  DELETED: "삭제됨",
+}
+
+/** 네이버 상태 + 사용자 OFF 여부. 사유는 title 로 */
+function StatusCell({
   value,
-}: CustomCellRendererProps<AdGroupKeyword, boolean>) {
+  data,
+}: CustomCellRendererProps<AdGroupKeyword, string>) {
+  const label = value ? (STATUS_LABEL[value] ?? value) : "-"
   return (
-    <Badge variant={value ? "outline" : "secondary"} className="h-4 px-1.5">
-      {value ? "OFF" : "ON"}
-    </Badge>
+    <>
+      <span
+        title={data?.statusReason ?? undefined}
+        className={value === "ELIGIBLE" ? undefined : "text-muted-foreground"}
+      >
+        {label}
+      </span>
+      {data?.userLock && (
+        <Badge variant="outline" className="h-4 px-1.5">
+          OFF
+        </Badge>
+      )}
+    </>
   )
 }
 
@@ -131,23 +187,13 @@ function BidCell({
   return <>{value == null ? "-" : `${formatNumber(value)}원`}</>
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  ELIGIBLE: "노출 가능",
-  PAUSED: "일시중지",
-  DELETED: "삭제됨",
-}
-
-function StatusCell({
+function ExposableCell({
   value,
-}: CustomCellRendererProps<AdGroupKeyword, string>) {
-  if (!value) return <span className="text-muted-foreground">-</span>
-  const label = STATUS_LABEL[value] ?? value
-  return (
-    <span
-      className={value === "ELIGIBLE" ? undefined : "text-muted-foreground"}
-    >
-      {label}
-    </span>
+}: CustomCellRendererProps<AdGroupKeyword, boolean>) {
+  return value ? (
+    <span>가능</span>
+  ) : (
+    <span className="text-muted-foreground">불가</span>
   )
 }
 
@@ -181,19 +227,51 @@ function GridOverlay({
   return <p className="text-center text-sm text-muted-foreground">{message}</p>
 }
 
-/** 자동 입찰 페이지 하단 — 선택한 그룹의 키워드 목록 */
+/** 편집기가 돌려주는 값을 설정값으로. 빈 값은 null(미입력) */
+function toSettingValue(raw: unknown): number | null {
+  if (raw === "" || raw == null) return null
+  const n = typeof raw === "number" ? raw : Number(raw)
+  return Number.isFinite(n) ? Math.round(n) : null
+}
+
+/**
+ * 자동 입찰 페이지 하단 — 선택한 그룹의 키워드 목록.
+ * 희망순위·입찰가 한도·가감액은 셀을 더블클릭(또는 Enter)해 편집하면 즉시 저장된다.
+ */
 export function BiddingKeywordGrid({ group }: BiddingKeywordGridProps) {
+  const adGroupId = group?.id ?? null
   const {
     data: keywords = [],
     isLoading,
     error,
-  } = useAdGroupKeywords(group?.id ?? null)
+  } = useAdGroupKeywords(adGroupId)
+  const updateSetting = useUpdateKeywordSetting(adGroupId)
+
   const [search, setSearch] = useState("")
   const query = search.trim()
   const overlayParams = useMemo<OverlayParams>(
     () => ({ query, errorMessage: error?.message ?? null }),
     [query, error]
   )
+
+  /**
+   * readOnlyEdit 이라 그리드는 데이터를 직접 바꾸지 않고 요청만 보낸다.
+   * 여기서 캐시를 낙관적으로 갱신하면 그리드가 새 값을 다시 그린다.
+   */
+  function handleCellEditRequest(e: CellEditRequestEvent<AdGroupKeyword>) {
+    const field = e.column.getColId() as keyof BidSettingValues
+    if (!e.data || !EDITABLE_FIELDS.has(field)) return
+    const next = toSettingValue(e.newValue)
+    const prev = e.data.bidSetting?.[field] ?? null
+    if (next === prev) return
+    updateSetting.mutate(
+      { keywordId: e.data.id, patch: { [field]: next } },
+      {
+        onError: (err) =>
+          toast.error(errorMessage(err, "설정을 저장하지 못했습니다.")),
+      }
+    )
+  }
 
   if (!group) {
     return (
@@ -253,7 +331,9 @@ export function BiddingKeywordGrid({ group }: BiddingKeywordGridProps) {
           loading={isLoading}
           overlayComponent={GridOverlay}
           overlayComponentParams={overlayParams}
-          suppressCellFocus
+          readOnlyEdit
+          onCellEditRequest={handleCellEditRequest}
+          stopEditingWhenCellsLoseFocus
         />
       </div>
     </div>

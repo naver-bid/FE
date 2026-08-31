@@ -3,6 +3,7 @@ import {
   ClientSideRowModelModule,
   ExternalFilterModule,
   ModuleRegistry,
+  NumberEditorModule,
   QuickFilterModule,
   RowApiModule,
   RowSelectionModule,
@@ -22,6 +23,8 @@ ModuleRegistry.registerModules([
   ExternalFilterModule,
   // 자동 입찰 그룹 그리드에서 api.forEachNode 로 선택 상태를 맞출 때 필요
   RowApiModule,
+  // 키워드 그리드의 희망순위·입찰가 한도·가감액 셀 편집
+  NumberEditorModule,
   RowStyleModule,
   CellStyleModule,
   ...(import.meta.env.DEV ? [ValidationModule] : []),
