@@ -2,20 +2,39 @@ import { useEffect, useMemo } from "react"
 import { ArrowRight, Gavel } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 import { useDefaultLayout } from "react-resizable-panels"
+import { toast } from "sonner"
 
 import { BiddingGroupGrid } from "@/components/bidding-group-grid"
 import { BiddingKeywordGrid } from "@/components/bidding-keyword-grid"
 import { Chip } from "@/components/set-chip-bar"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
+import { Switch } from "@/components/ui/switch"
 import { useAccount } from "@/hooks/use-account"
 import { useAdGroups } from "@/hooks/use-ad-groups"
 import { useBiddingSets } from "@/hooks/use-bidding-sets"
 import { routes } from "@/lib/pages"
+import { errorMessage } from "@/lib/toast"
+import { cn } from "@/lib/utils"
+import type { BiddingSet } from "@/types/bidding"
+
+/** 세트 칩 앞의 상태 점 — 초록: 자동입찰 진행 중, 회색: 정지 */
+function StatusDot({ enabled }: { enabled: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-1.5 rounded-full",
+        enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
+      )}
+    />
+  )
+}
 
 /**
  * 자동 입찰 — 상단 칩으로 세트를 고르면 위 그리드에 그룹, 그룹을 클릭하면 아래 그리드에 키워드.
@@ -26,7 +45,7 @@ export function BiddingPage() {
   const goAdGroups = () => void navigate(routes.adGroups)
   const { account } = useAccount()
   const { data: groups = [] } = useAdGroups(account?.customerId)
-  const { sets, membership, isLoading } = useBiddingSets()
+  const { sets, membership, isLoading, updateSet } = useBiddingSets()
 
   // 위/아래 그리드 비율은 브라우저(localStorage)에 저장해 다음 방문에도 유지
   const splitLayout = useDefaultLayout({
@@ -81,6 +100,21 @@ export function BiddingPage() {
     })
   }
 
+  function toggleEnabled(set: BiddingSet, enabled: boolean) {
+    updateSet.mutate(
+      { id: set.id, enabled },
+      {
+        onError: (err) =>
+          toast.error(
+            errorMessage(
+              err,
+              `${set.name} 세트의 자동입찰을 ${enabled ? "시작" : "정지"}하지 못했습니다.`
+            )
+          ),
+      }
+    )
+  }
+
   if (!account) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
@@ -127,7 +161,9 @@ export function BiddingPage() {
               key={set.id}
               active={set.id === activeSet?.id}
               onClick={() => selectSet(set.id)}
+              className={cn(!set.enabled && "opacity-60")}
             >
+              <StatusDot enabled={set.enabled} />
               {set.name}
               <span className="tabular-nums opacity-70">
                 {set.adGroupIds.length}
@@ -145,6 +181,35 @@ export function BiddingPage() {
           <ArrowRight />
         </Button>
       </div>
+
+      {/* 선택된 세트 헤더 — 이 세트의 자동입찰 실행 여부를 여기서 켜고 끈다 */}
+      {activeSet && (
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="truncate font-medium">{activeSet.name}</span>
+            <span className="shrink-0 text-muted-foreground">
+              그룹 {activeSet.adGroupIds.length}개
+            </span>
+          </div>
+          <Label
+            htmlFor="bidding-set-enabled"
+            className="flex shrink-0 cursor-pointer items-center gap-2 text-sm"
+          >
+            <span
+              className={cn(
+                activeSet.enabled ? "text-foreground" : "text-muted-foreground"
+              )}
+            >
+              자동입찰 {activeSet.enabled ? "진행 중" : "정지"}
+            </span>
+            <Switch
+              id="bidding-set-enabled"
+              checked={activeSet.enabled}
+              onCheckedChange={(checked) => toggleEnabled(activeSet, checked)}
+            />
+          </Label>
+        </div>
+      )}
 
       {/* 위: 그룹 / 아래: 키워드. 경계를 드래그해 비율을 바꿀 수 있다 */}
       <ResizablePanelGroup

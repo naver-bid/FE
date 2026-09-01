@@ -110,6 +110,7 @@ export function useBiddingSets() {
     onSettled: invalidate,
   })
 
+  /** 이름/실행 여부 변경. 토글이 즉시 반응하도록 낙관적으로 반영하고 실패 시 되돌린다. */
   const updateSet = useMutation({
     mutationFn: ({
       id,
@@ -119,7 +120,21 @@ export function useBiddingSets() {
       name?: string
       enabled?: boolean
     }) => api.updateBiddingSet(id, patch),
-    onSuccess: invalidate,
+    onMutate: async ({ id, ...patch }) => {
+      await queryClient.cancelQueries({ queryKey: setsKey })
+      const previous = queryClient.getQueryData<BiddingSet[]>(setsKey)
+      if (previous) {
+        queryClient.setQueryData<BiddingSet[]>(
+          setsKey,
+          previous.map((s) => (s.id === id ? { ...s, ...patch } : s))
+        )
+      }
+      return { previous }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(setsKey, ctx.previous)
+    },
+    onSettled: invalidate,
   })
 
   /** 순서 변경. 낙관적으로 반영하고 실패 시 되돌린다. */
