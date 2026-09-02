@@ -27,12 +27,12 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="px-2 py-1 text-sm font-semibold group-data-[collapsible=icon]:hidden">
-          네이버 자동입찰
+          비딩비딩
         </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>메뉴</SidebarGroupLabel>
+          <SidebarGroupLabel>네이버 자동입찰</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {pages.map((item) => (
