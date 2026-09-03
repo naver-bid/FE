@@ -22,10 +22,6 @@ export const patchAdGroupSetting = (
     patch
   )
 
-/** 계정의 모든 광고 그룹에 같은 device 를 일괄 저장. updated = 적용된 그룹 수 */
-export const applyAdGroupSettingToAll = (body: { device: Device | null }) =>
-  request<{ updated: number }>("PUT", "/api/adgroups/settings", body)
-
 /**
  * 네이버에서 실시간 조회한 키워드 + 사용자 입찰 설정(bidSetting) + 기간 통계(stats) 병합.
  * period 는 통계 집계 기간 (기본 last7days).

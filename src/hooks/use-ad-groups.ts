@@ -137,18 +137,43 @@ export function useUpdateAdGroupDevice(customerId: string | undefined) {
   })
 }
 
-/** 계정의 모든 광고 그룹에 같은 기기를 일괄 저장하고 목록을 다시 불러온다 */
-export function useApplyDeviceToAll(customerId: string | undefined) {
+/**
+ * 여러 광고 그룹의 기기를 같은 값으로 일괄 수정한다 (그룹별 PATCH 병렬 호출).
+ * 낙관적으로 반영하고, 하나라도 실패하면 목록을 다시 불러와 실제 상태로 되돌린다.
+ * 실패한 그룹 수를 돌려준다.
+ */
+export function useUpdateAdGroupDevices(customerId: string | undefined) {
   const queryClient = useQueryClient()
+  const key = queryKeys.adGroups(customerId ?? "")
 
   return useMutation({
-    mutationFn: (device: Device | null) =>
-      api.applyAdGroupSettingToAll({ device }),
-    onSuccess: async () => {
-      if (customerId) {
-        await queryClient.invalidateQueries({
-          queryKey: queryKeys.adGroups(customerId),
-        })
+    mutationFn: async ({
+      adGroupIds,
+      device,
+    }: {
+      adGroupIds: string[]
+      device: Device | null
+    }) => {
+      const results = await Promise.allSettled(
+        adGroupIds.map((id) => api.patchAdGroupSetting(id, { device }))
+      )
+      return results.filter((r) => r.status === "rejected").length
+    },
+    onMutate: async ({ adGroupIds, device }) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<AdGroup[]>(key)
+      const targets = new Set(adGroupIds)
+      queryClient.setQueryData<AdGroup[]>(key, (prev) =>
+        prev?.map((g) => (targets.has(g.id) ? { ...g, device } : g))
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(key, ctx.previous)
+    },
+    onSuccess: async (failedCount) => {
+      if (failedCount > 0) {
+        await queryClient.invalidateQueries({ queryKey: key })
       }
     },
   })
