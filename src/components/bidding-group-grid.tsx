@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -182,15 +183,18 @@ export function BiddingGroupGrid({
             <ChevronDown />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel>계정의 모든 그룹에 적용</DropdownMenuLabel>
-            {DEVICE_OPTIONS.map((o) => (
-              <DropdownMenuItem
-                key={o.label}
-                onClick={() => void handleApplyAll(o.value)}
-              >
-                {o.label}
-              </DropdownMenuItem>
-            ))}
+            {/* GroupLabel 은 반드시 Group 안에 있어야 한다 (Base UI 가 컨텍스트 없으면 throw) */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>계정의 모든 그룹에 적용</DropdownMenuLabel>
+              {DEVICE_OPTIONS.map((o) => (
+                <DropdownMenuItem
+                  key={o.label}
+                  onClick={() => void handleApplyAll(o.value)}
+                >
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
