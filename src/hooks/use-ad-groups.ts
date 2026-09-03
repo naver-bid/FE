@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import * as api from "@/lib/api"
 import { queryKeys } from "@/lib/query-keys"
-import type { AdGroupKeyword, BidSettingValues, StatsPeriod } from "@/types/ads"
+import type {
+  AdGroup,
+  AdGroupKeyword,
+  BidSettingValues,
+  Device,
+  StatsPeriod,
+} from "@/types/ads"
 
 export function useAdGroups(customerId: string | undefined) {
   return useQuery({
@@ -100,6 +106,50 @@ export function useBulkUpdateKeywordSettings(adGroupId: string | null) {
           return setting ? { ...k, bidSetting: setting } : k
         })
       )
+    },
+  })
+}
+
+/** 광고 그룹 하나의 기기(device)를 낙관적으로 수정한다. 실패하면 되돌린다. */
+export function useUpdateAdGroupDevice(customerId: string | undefined) {
+  const queryClient = useQueryClient()
+  const key = queryKeys.adGroups(customerId ?? "")
+
+  return useMutation({
+    mutationFn: ({
+      adGroupId,
+      device,
+    }: {
+      adGroupId: string
+      device: Device | null
+    }) => api.patchAdGroupSetting(adGroupId, { device }),
+    onMutate: async ({ adGroupId, device }) => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<AdGroup[]>(key)
+      queryClient.setQueryData<AdGroup[]>(key, (prev) =>
+        prev?.map((g) => (g.id === adGroupId ? { ...g, device } : g))
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(key, ctx.previous)
+    },
+  })
+}
+
+/** 계정의 모든 광고 그룹에 같은 기기를 일괄 저장하고 목록을 다시 불러온다 */
+export function useApplyDeviceToAll(customerId: string | undefined) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (device: Device | null) =>
+      api.applyAdGroupSettingToAll({ device }),
+    onSuccess: async () => {
+      if (customerId) {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.adGroups(customerId),
+        })
+      }
     },
   })
 }

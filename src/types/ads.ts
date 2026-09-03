@@ -1,3 +1,6 @@
+/** 예상 입찰가를 조회할 기기 */
+export type Device = "PC" | "MOBILE"
+
 export interface AdGroup {
   /** nccAdgroupId */
   id: string
@@ -8,6 +11,16 @@ export interface AdGroup {
   siteUrl: string
   /** 속한 자동입찰 세트 목록. 여러 세트에 속할 수 있으며 미배정이면 빈 배열 */
   setIds: string[]
+  /** 예상 입찰가를 조회할 기기. 미입력이면 null (서버 기본값 사용) */
+  device: Device | null
+}
+
+/** 광고 그룹 설정 — PATCH /api/adgroups/{id}/settings 응답. 서버 스키마: AdGroupSettingRead */
+export interface AdGroupSetting {
+  adGroupId: string
+  device: Device | null
+  /** 마지막 저장 시각 (ISO) */
+  updatedAt: string
 }
 
 /**

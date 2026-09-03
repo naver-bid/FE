@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useAdGroupKeywords } from "@/hooks/use-ad-groups"
+import { deviceLabel } from "@/lib/device"
 import { formatNumber } from "@/lib/format"
 import type { AdGroup } from "@/types/ads"
 import type { BiddingSet } from "@/types/bidding"
@@ -81,6 +82,14 @@ function DetailBody({ group, sets }: { group: AdGroup; sets: BiddingSet[] }) {
             <span>{sets.map((s) => s.name).join(", ")}</span>
           ) : (
             <span className="text-muted-foreground">미배정</span>
+          )}
+        </dd>
+        <dt className="text-muted-foreground">기기</dt>
+        <dd>
+          {group.device ? (
+            <span>{deviceLabel(group.device)}</span>
+          ) : (
+            <span className="text-muted-foreground">미입력</span>
           )}
         </dd>
         <dt className="text-muted-foreground">사이트</dt>

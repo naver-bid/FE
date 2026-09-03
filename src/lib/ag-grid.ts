@@ -9,6 +9,7 @@ import {
   RowApiModule,
   RowSelectionModule,
   RowStyleModule,
+  SelectEditorModule,
   TooltipModule,
   ValidationModule,
   themeQuartz,
@@ -29,6 +30,8 @@ ModuleRegistry.registerModules([
   RenderApiModule,
   // 키워드 그리드의 희망순위·입찰가 한도·가감액 셀 편집
   NumberEditorModule,
+  // 자동 입찰 그룹 그리드의 기기(device) 셀 편집
+  SelectEditorModule,
   // 셀 편집 검증 오류 메시지를 툴팁으로 보여준다 (invalidEditValueMode)
   TooltipModule,
   RowStyleModule,
