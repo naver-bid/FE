@@ -11,9 +11,9 @@ export interface BiddingSet {
 
 /** PUT /api/bidding-sets/{id}/items 응답 */
 export interface BiddingSetAssignResult extends BiddingSet {
-  /** 다른 세트에서 이동된 그룹 수 */
-  moved: number
+  /** 이 세트에 새로 추가된 그룹 수 (이미 있던 그룹 제외) */
+  added: number
 }
 
-/** adGroupId → setId. 한 그룹은 하나의 세트에만 속한다. */
-export type BiddingMembership = Record<string, string>
+/** adGroupId → 속한 setId 목록. 한 그룹은 여러 세트에 속할 수 있다. */
+export type BiddingMembership = Record<string, string[]>

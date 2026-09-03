@@ -28,7 +28,7 @@ export const reorderBiddingSets = (ids: string[]) =>
 export const deleteBiddingSet = (id: string) =>
   request<void>("DELETE", `/api/bidding-sets/${encodeURIComponent(id)}`)
 
-/** 그룹들을 세트에 배정. 다른 세트에 있던 그룹은 이동된다. */
+/** 그룹들을 세트에 추가. 한 그룹은 여러 세트에 속할 수 있어 다른 세트 소속은 유지된다. */
 export const assignBiddingSetItems = (id: string, adGroupIds: string[]) =>
   request<BiddingSetAssignResult>(
     "PUT",

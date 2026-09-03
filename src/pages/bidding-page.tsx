@@ -45,7 +45,7 @@ export function BiddingPage() {
   const goAdGroups = () => void navigate(routes.adGroups)
   const { account } = useAccount()
   const { data: groups = [] } = useAdGroups(account?.customerId)
-  const { sets, membership, isLoading, updateSet } = useBiddingSets()
+  const { sets, isLoading, updateSet } = useBiddingSets()
 
   // 위/아래 그리드 비율은 브라우저(localStorage)에 저장해 다음 방문에도 유지
   const splitLayout = useDefaultLayout({
@@ -59,11 +59,11 @@ export function BiddingPage() {
 
   // URL 의 세트가 없거나 사라졌으면 첫 세트로
   const activeSet = sets.find((s) => s.id === setParam) ?? sets[0] ?? null
-  const activeGroups = useMemo(
-    () =>
-      activeSet ? groups.filter((g) => membership[g.id] === activeSet.id) : [],
-    [groups, membership, activeSet]
-  )
+  const activeGroups = useMemo(() => {
+    if (!activeSet) return []
+    const ids = new Set(activeSet.adGroupIds)
+    return groups.filter((g) => ids.has(g.id))
+  }, [groups, activeSet])
   // URL 의 그룹이 현재 세트에 없으면 첫 그룹 자동 선택 (아래 그리드가 비어 보이는 순간을 없앤다)
   const activeGroup =
     activeGroups.find((g) => g.id === groupParam) ?? activeGroups[0] ?? null

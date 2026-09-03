@@ -8,8 +8,8 @@ import type { AdGroup } from "@/types/ads"
 import type { BiddingMembership, BiddingSet } from "@/types/bidding"
 
 /**
- * 자동입찰 세트 및 그룹 소속 상태 (서버 상태).
- * 세트 변경은 광고 그룹의 setId 에도 영향을 주므로 두 쿼리를 함께 무효화한다.
+ * 자동입찰 세트 및 그룹 소속 상태 (서버 상태). 한 그룹은 여러 세트에 속할 수 있다.
+ * 세트 변경은 광고 그룹의 setIds 에도 영향을 주므로 두 쿼리를 함께 무효화한다.
  */
 export function useBiddingSets() {
   const { account } = useAccount()
@@ -27,7 +27,8 @@ export function useBiddingSets() {
 
   const membership: BiddingMembership = useMemo(() => {
     const m: BiddingMembership = {}
-    for (const set of sets) for (const id of set.adGroupIds) m[id] = set.id
+    for (const set of sets)
+      for (const id of set.adGroupIds) (m[id] ??= []).push(set.id)
     return m
   }, [sets])
 
@@ -40,7 +41,7 @@ export function useBiddingSets() {
 
   /**
    * 그룹 소속 변경을 두 캐시(세트 목록, 광고 그룹)에 낙관적으로 반영한다.
-   * `apply` 로 세트 목록을 바꾸면 각 그룹의 setId 는 거기서 유도된다.
+   * `apply` 로 세트 목록을 바꾸면 각 그룹의 setIds 는 거기서 유도된다.
    * 실패 시 되돌릴 수 있도록 이전 스냅샷을 돌려준다.
    */
   const applyOptimistic = async (
@@ -56,16 +57,17 @@ export function useBiddingSets() {
       const nextSets = apply(previousSets)
       queryClient.setQueryData<BiddingSet[]>(setsKey, nextSets)
       if (previousGroups) {
-        const setIdOf: Record<string, string> = {}
+        const setIdsOf: Record<string, string[]> = {}
         for (const set of nextSets)
-          for (const id of set.adGroupIds) setIdOf[id] = set.id
+          for (const id of set.adGroupIds) (setIdsOf[id] ??= []).push(set.id)
+        const sameIds = (a: string[], b: string[]) =>
+          a.length === b.length && a.every((id, i) => id === b[i])
         queryClient.setQueryData<AdGroup[]>(
           adGroupsKey,
-          previousGroups.map((g) =>
-            (setIdOf[g.id] ?? null) === g.setId
-              ? g
-              : { ...g, setId: setIdOf[g.id] ?? null }
-          )
+          previousGroups.map((g) => {
+            const setIds = setIdsOf[g.id] ?? []
+            return sameIds(setIds, g.setIds) ? g : { ...g, setIds }
+          })
         )
       }
     }
@@ -81,7 +83,7 @@ export function useBiddingSets() {
       queryClient.setQueryData(adGroupsKey, ctx.previousGroups)
   }
 
-  /** 세트에서 주어진 그룹들을 뺀다 (다른 세트로 이동/제거 시 공통) */
+  /** 모든 세트에서 주어진 그룹들을 뺀다 (소속 전체 해제 시) */
   const withoutGroups = (sets: BiddingSet[], adGroupIds: string[]) => {
     const removing = new Set(adGroupIds)
     return sets.map((s) =>
@@ -97,7 +99,7 @@ export function useBiddingSets() {
       api.createBiddingSet(body),
     onMutate: ({ name, adGroupIds = [] }) =>
       applyOptimistic((sets) => [
-        ...withoutGroups(sets, adGroupIds),
+        ...sets,
         {
           id: `optimistic-${Date.now()}`,
           name,
@@ -163,6 +165,7 @@ export function useBiddingSets() {
     onSuccess: invalidate,
   })
 
+  /** 그룹들을 세트에 추가. 다른 세트 소속은 유지된다. */
   const assignGroups = useMutation({
     mutationFn: ({
       setId,
@@ -173,9 +176,12 @@ export function useBiddingSets() {
     }) => api.assignBiddingSetItems(setId, adGroupIds),
     onMutate: ({ setId, adGroupIds }) =>
       applyOptimistic((sets) =>
-        withoutGroups(sets, adGroupIds).map((s) =>
+        sets.map((s) =>
           s.id === setId
-            ? { ...s, adGroupIds: [...s.adGroupIds, ...adGroupIds] }
+            ? {
+                ...s,
+                adGroupIds: [...new Set([...s.adGroupIds, ...adGroupIds])],
+              }
             : s
         )
       ),
@@ -183,6 +189,33 @@ export function useBiddingSets() {
     onSettled: invalidate,
   })
 
+  /** 특정 세트에서만 그룹들을 뺀다 */
+  const removeFromSet = useMutation({
+    mutationFn: ({
+      setId,
+      adGroupIds,
+    }: {
+      setId: string
+      adGroupIds: string[]
+    }) => api.removeBiddingSetItems(setId, adGroupIds),
+    onMutate: ({ setId, adGroupIds }) => {
+      const removing = new Set(adGroupIds)
+      return applyOptimistic((sets) =>
+        sets.map((s) =>
+          s.id === setId
+            ? {
+                ...s,
+                adGroupIds: s.adGroupIds.filter((id) => !removing.has(id)),
+              }
+            : s
+        )
+      )
+    },
+    onError: (_err, _vars, ctx) => rollback(ctx),
+    onSettled: invalidate,
+  })
+
+  /** 어느 세트에 있든 그룹들의 소속을 모두 해제한다 */
   const unassignGroups = useMutation({
     mutationFn: (adGroupIds: string[]) =>
       api.unassignBiddingSetItems(adGroupIds),
@@ -201,6 +234,7 @@ export function useBiddingSets() {
     reorderSets,
     deleteSet,
     assignGroups,
+    removeFromSet,
     unassignGroups,
   }
 }

@@ -23,6 +23,7 @@ import { SetNameDialog } from "@/components/set-name-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -53,10 +54,8 @@ interface AdGroupSelectTableProps {
 
 /** 그리드 행: 광고 그룹 + 세트 목록에서 유도한 소속 정보 */
 interface AdGroupRow extends AdGroup {
-  /** 세트 목록(membership) 기준 소속. 미배정이면 null */
-  setId: string | null
-  /** 소속 세트 이름. 미배정이면 빈 문자열 (검색 대상에서 제외) */
-  setName: string
+  /** 소속 세트 이름들 (", " 로 연결). 미배정이면 빈 문자열 (검색 대상에서 제외) */
+  setNames: string
 }
 
 /** 오버레이에 넘기는 추가 파라미터 — 행이 0개인 이유에 따라 문구를 바꾼다 */
@@ -92,7 +91,7 @@ const columnDefs: ColDef<AdGroupRow>[] = [
     cellStyle: { color: "var(--muted-foreground)" },
   },
   {
-    field: "setName",
+    field: "setNames",
     headerName: "세트",
     width: 160,
     cellRenderer: SetCell,
@@ -143,8 +142,14 @@ export function AdGroupSelectTable({
   const { account } = useAccount()
   const { data: groups = [], isLoading } = useAdGroups(account?.customerId)
   const loading = isLoading || (syncing && groups.length === 0)
-  const { sets, membership, createSet, assignGroups, unassignGroups } =
-    useBiddingSets()
+  const {
+    sets,
+    membership,
+    createSet,
+    assignGroups,
+    removeFromSet,
+    unassignGroups,
+  } = useBiddingSets()
 
   const gridRef = useRef<AgGridReact<AdGroupRow>>(null)
   const [search, setSearch] = useState("")
@@ -157,11 +162,14 @@ export function AdGroupSelectTable({
   const rows = useMemo<AdGroupRow[]>(
     () =>
       groups.map((g) => {
-        const setId = membership[g.id] ?? null
+        const setIds = membership[g.id] ?? []
         return {
           ...g,
-          setId,
-          setName: setId ? (setById.get(setId)?.name ?? "") : "",
+          setIds,
+          setNames: setIds
+            .map((id) => setById.get(id)?.name ?? "")
+            .filter(Boolean)
+            .join(", "),
         }
       }),
     [groups, membership, setById]
@@ -179,8 +187,10 @@ export function AdGroupSelectTable({
     DoesExternalFilterPass<AdGroupRow>
   >(
     (node) => {
-      const setId = node.data?.setId ?? null
-      return filter === "unassigned" ? setId === null : setId === filter
+      const setIds = node.data?.setIds ?? []
+      return filter === "unassigned"
+        ? setIds.length === 0
+        : setIds.includes(filter)
     },
     [filter]
   )
@@ -188,7 +198,9 @@ export function AdGroupSelectTable({
     gridRef.current?.api?.onFilterChanged()
   }, [filter, rows])
 
-  const selectedAssignedCount = selected.filter((id) => membership[id]).length
+  const selectedAssignedCount = selected.filter(
+    (id) => (membership[id] ?? []).length > 0
+  ).length
 
   function handleSelectionChanged(e: SelectionChangedEvent<AdGroupRow>) {
     setSelected(e.api.getSelectedNodes().flatMap((n) => n.data?.id ?? []))
@@ -198,24 +210,38 @@ export function AdGroupSelectTable({
     gridRef.current?.api?.deselectAll()
   }
 
+  /** 체크 = 선택한 그룹을 세트에 추가. 메뉴를 닫지 않고 연속으로 배정할 수 있게 선택을 유지한다 */
   function handleAssign(setId: string) {
-    const adGroupIds = selected
     assignGroups.mutate(
-      { setId, adGroupIds },
+      { setId, adGroupIds: selected },
       {
         // 성공 시에는 토스트 없이 세트 칩/세트 컬럼 변화로만 알린다
         onError: (err) =>
           toast.error(errorMessage(err, "세트에 추가하지 못했습니다.")),
       }
     )
-    clearSelection()
   }
 
+  /** 체크 해제 = 이 세트에서만 제거 (다른 세트 소속은 유지) */
+  function handleRemoveFromSet(set: BiddingSet) {
+    const adGroupIds = selected.filter((id) => membership[id]?.includes(set.id))
+    removeFromSet.mutate(
+      { setId: set.id, adGroupIds },
+      {
+        onError: (err) =>
+          toast.error(errorMessage(err, "세트에서 제거하지 못했습니다.")),
+      }
+    )
+  }
+
+  /** 선택한 그룹을 모든 세트에서 제거 */
   function handleUnassign() {
     const adGroupIds = selected
     unassignGroups.mutate(adGroupIds, {
       onSuccess: () =>
-        toast.success(`그룹 ${adGroupIds.length}개를 세트에서 제거했습니다.`),
+        toast.success(
+          `그룹 ${adGroupIds.length}개를 모든 세트에서 제거했습니다.`
+        ),
       onError: (err) =>
         toast.error(errorMessage(err, "세트에서 제거하지 못했습니다.")),
     })
@@ -244,14 +270,14 @@ export function AdGroupSelectTable({
     if (created) clearSelection()
   }
 
-  function openDetail(group: AdGroup, set: BiddingSet | undefined) {
+  function openDetail(group: AdGroup, groupSets: BiddingSet[]) {
     overlay.open(({ isOpen, close, unmount }) => (
       <AdGroupDetailSheet
         isOpen={isOpen}
         close={close}
         unmount={unmount}
         group={group}
-        set={set}
+        sets={groupSets}
       />
     ))
   }
@@ -259,13 +285,15 @@ export function AdGroupSelectTable({
   /** 체크박스 칸을 제외한 행 클릭은 상세 시트를 연다 */
   function handleCellClicked(e: CellClickedEvent<AdGroupRow>) {
     if (!e.data || e.column.getColId() === SELECTION_COLUMN_ID) return
-    openDetail(e.data, e.data.setId ? setById.get(e.data.setId) : undefined)
+    openDetail(
+      e.data,
+      e.data.setIds.flatMap((id) => setById.get(id) ?? [])
+    )
   }
 
-  /** 선택된 그룹 중 해당 세트가 아닌 다른 세트에서 이동하게 되는 개수 */
-  function movingCount(setId: string) {
-    return selected.filter((id) => membership[id] && membership[id] !== setId)
-      .length
+  /** 선택된 그룹 중 이미 해당 세트에 속해 있어 새로 추가되지 않는 개수 */
+  function alreadyInCount(setId: string) {
+    return selected.filter((id) => membership[id]?.includes(setId)).length
   }
 
   return (
@@ -310,28 +338,37 @@ export function AdGroupSelectTable({
               render={<Button size="sm" disabled={selected.length === 0} />}
             >
               <FolderPlus />
-              세트에 추가
+              세트 배정
               <ChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               {sets.length > 0 && (
                 <>
                   <DropdownMenuGroup>
-                    <DropdownMenuLabel>세트 선택</DropdownMenuLabel>
+                    <DropdownMenuLabel>
+                      체크한 세트에 배정 (여러 개 가능)
+                    </DropdownMenuLabel>
                     {sets.map((set) => {
-                      const moving = movingCount(set.id)
+                      const alreadyIn = alreadyInCount(set.id)
+                      const allIn =
+                        selected.length > 0 && alreadyIn === selected.length
                       return (
-                        <DropdownMenuItem
+                        <DropdownMenuCheckboxItem
                           key={set.id}
-                          onClick={() => handleAssign(set.id)}
+                          checked={allIn}
+                          onCheckedChange={(checked) =>
+                            checked
+                              ? handleAssign(set.id)
+                              : handleRemoveFromSet(set)
+                          }
                         >
                           <span className="truncate">{set.name}</span>
-                          {moving > 0 && (
+                          {alreadyIn > 0 && !allIn && (
                             <span className="ml-auto text-xs text-muted-foreground">
-                              {moving}개 이동
+                              {alreadyIn}개 포함됨
                             </span>
                           )}
-                        </DropdownMenuItem>
+                        </DropdownMenuCheckboxItem>
                       )
                     })}
                   </DropdownMenuGroup>
@@ -349,7 +386,7 @@ export function AdGroupSelectTable({
                     onClick={handleUnassign}
                   >
                     <X />
-                    세트에서 제거 ({selectedAssignedCount})
+                    모든 세트에서 제거 ({selectedAssignedCount})
                   </DropdownMenuItem>
                 </>
               )}

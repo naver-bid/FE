@@ -6,10 +6,8 @@ export interface AdGroup {
   campaignName: string
   name: string
   siteUrl: string
-  /** @deprecated 세트 소속(setId)으로 대체됨 */
-  syncEnabled: boolean
-  /** 속한 자동입찰 세트. 미배정이면 null */
-  setId: string | null
+  /** 속한 자동입찰 세트 목록. 여러 세트에 속할 수 있으며 미배정이면 빈 배열 */
+  setIds: string[]
 }
 
 /**

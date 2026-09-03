@@ -27,7 +27,8 @@ interface AdGroupDetailSheetProps {
   close: () => void
   unmount: () => void
   group: AdGroup
-  set: BiddingSet | undefined
+  /** 그룹이 속한 세트들. 미배정이면 빈 배열 */
+  sets: BiddingSet[]
 }
 
 /** 광고 그룹 행 클릭 시 열리는 상세 시트 — 기본 정보 + 키워드 목록(읽기 전용). overlay-kit으로 연다. */
@@ -36,7 +37,7 @@ export function AdGroupDetailSheet({
   close,
   unmount,
   group,
-  set,
+  sets,
 }: AdGroupDetailSheetProps) {
   return (
     <Sheet
@@ -49,19 +50,13 @@ export function AdGroupDetailSheet({
       }}
     >
       <SheetContent className="sm:max-w-lg">
-        <DetailBody group={group} set={set} />
+        <DetailBody group={group} sets={sets} />
       </SheetContent>
     </Sheet>
   )
 }
 
-function DetailBody({
-  group,
-  set,
-}: {
-  group: AdGroup
-  set: BiddingSet | undefined
-}) {
+function DetailBody({ group, sets }: { group: AdGroup; sets: BiddingSet[] }) {
   const {
     data: keywords,
     isLoading,
@@ -82,8 +77,8 @@ function DetailBody({
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 px-4 text-sm">
         <dt className="text-muted-foreground">세트</dt>
         <dd>
-          {set ? (
-            <span>{set.name}</span>
+          {sets.length > 0 ? (
+            <span>{sets.map((s) => s.name).join(", ")}</span>
           ) : (
             <span className="text-muted-foreground">미배정</span>
           )}

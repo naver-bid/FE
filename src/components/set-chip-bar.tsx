@@ -69,7 +69,9 @@ export function SetChipBar({ value, onChange }: SetChipBarProps) {
   const { sets, membership, createSet, updateSet, reorderSets, deleteSet } =
     useBiddingSets()
 
-  const unassignedCount = groups.filter((g) => !membership[g.id]).length
+  const unassignedCount = groups.filter(
+    (g) => (membership[g.id] ?? []).length === 0
+  ).length
 
   function move(index: number, delta: -1 | 1) {
     const target = index + delta
@@ -126,8 +128,8 @@ export function SetChipBar({ value, onChange }: SetChipBarProps) {
         description={
           <>
             <b>{set.name}</b> 세트가 삭제되고, 속해 있던 그룹{" "}
-            {set.adGroupIds.length}개는 미배정 상태가 됩니다. 광고 그룹 자체는
-            삭제되지 않습니다.
+            {set.adGroupIds.length}개는 이 세트에서만 빠집니다. 다른 세트 소속과
+            광고 그룹 자체는 유지됩니다.
           </>
         }
         confirmLabel="삭제"
