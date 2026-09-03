@@ -164,10 +164,7 @@ export function BiddingGroupGrid({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
-          기기는 셀을 더블클릭해 수정합니다
-        </span>
+      <div className="flex items-center justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
